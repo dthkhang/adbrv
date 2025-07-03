@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+__version__ = "1.0.0"
 import sys, subprocess
 
 def print_help():
@@ -7,6 +8,7 @@ Adb reverse proxy:
   adb-rvproxy <local_port> <device_port> [--device <serial>]
   adb-rvproxy --unset [--device <serial>]
   adb-rvproxy --status
+  adb-rvproxy --update
   adb-rvproxy -h | --help
     """)
 
@@ -89,7 +91,7 @@ def print_all_status():
 
 def parse_args(argv):
     # Returns: (cmd, local_port, device_port, serial)
-    # cmd: 'set', 'unset', 'status', 'help'
+    # cmd: 'set', 'unset', 'status', 'help', 'update'
     if len(argv) == 2 and argv[1] in ['-h', '--help']:
         return ('help', None, None, None)
     if len(argv) >= 2 and argv[1] == '--status':
@@ -116,7 +118,39 @@ def parse_args(argv):
                 print("[!] Missing serial after --device.")
                 sys.exit(1)
         return ('set', local_port, device_port, serial)
+    if len(argv) >= 2 and argv[1] == '--update':
+        return ('update', None, None, None)
     return (None, None, None, None)
+
+def update_script():
+    import os
+    import shutil
+    import urllib.request
+    GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adb-rvproxy/main/adb_rvproxy.py"
+    print("[+] Updating script from GitHub...")
+    try:
+        with urllib.request.urlopen(GITHUB_RAW_URL) as response:
+            new_code = response.read()
+        script_path = os.path.realpath(__file__)
+        # Lấy version hiện tại từ script (nếu có)
+        version = "unknown"
+        with open(script_path, "r") as f:
+            for line in f:
+                if "__version__" in line:
+                    version = line.split('=')[1].strip().strip('"\'')
+                    break
+        backup_dir = os.path.join(os.path.dirname(script_path), "backup")
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_path = os.path.join(backup_dir, f"adb_rvproxy.py.bak.{version}")
+        shutil.copy2(script_path, backup_path)
+        with open(script_path, "wb") as f:
+            f.write(new_code)
+        print(f"[+] Update successful! (Backup saved as {backup_path})")
+        print("[!] Please re-run the script.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"[!] Update failed: {e}")
+        sys.exit(1)
 
 def main():
     cmd, local_port, device_port, serial = parse_args(sys.argv)
@@ -127,6 +161,10 @@ def main():
 
     elif cmd == 'status':
         print_all_status()
+        sys.exit(0)
+
+    elif cmd == 'update':
+        update_script()
         sys.exit(0)
 
     elif cmd == 'unset':

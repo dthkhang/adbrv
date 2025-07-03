@@ -92,6 +92,9 @@ adbrv --unset [--device <serial>]
 adbrv --status
     # Display proxy and reverse port status for each connected device
 
+adbrv --update
+    # Automatically update the script to the latest version from GitHub
+
 adbrv -h | --help
     # Show help message
 ```
@@ -123,6 +126,14 @@ adbrv -h | --help
   ```bash
   adbrv --status
   ```
+
+* Update the script to the latest version from GitHub:
+
+  ```bash
+  adbrv --update
+  ```
+
+  > The script will automatically download the latest version from GitHub, overwrite the current file (and create a backup as `adb_rvproxy.py.bak`). After updating, simply re-run the script to use the newest version.
 
 ---
 
