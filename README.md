@@ -38,8 +38,8 @@
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/adb-rvproxy.git
-cd adb-rvproxy
+git clone https://github.com/dthkhang/adbrv.git
+cd adbrv
 ```
 
 ### 2. Install as CLI tool
@@ -95,6 +95,9 @@ adbrv --status
 adbrv --update
     # Automatically update the script to the latest version from GitHub
 
+adbrv --version
+    # Show current version
+
 adbrv -h | --help
     # Show help message
 ```
@@ -133,7 +136,13 @@ adbrv -h | --help
   adbrv --update
   ```
 
-  > The script will automatically download the latest version from GitHub, overwrite the current file (and create a backup as `adb_rvproxy.py.bak`). After updating, simply re-run the script to use the newest version.
+  > The script will automatically download the latest version from GitHub, overwrite the current file (and create a backup as `adbrv.py.bak`). If you are already using the latest version, it will notify you. After updating, simply re-run the script to use the newest version.
+
+* Check the current version:
+
+  ```bash
+  adbrv --version
+  ```
 
 ---
 

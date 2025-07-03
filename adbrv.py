@@ -5,11 +5,12 @@ import sys, subprocess
 def print_help():
     print("""
 Adb reverse proxy:
-  adb-rvproxy <local_port> <device_port> [--device <serial>]
-  adb-rvproxy --unset [--device <serial>]
-  adb-rvproxy --status
-  adb-rvproxy --update
-  adb-rvproxy -h | --help
+  adbrv <local_port> <device_port> [--device <serial>]
+  adbrv --unset [--device <serial>]
+  adbrv --status
+  adbrv --update
+  adbrv --version
+  adbrv -h | --help
     """)
 
 def is_valid_port(port):
@@ -91,7 +92,7 @@ def print_all_status():
 
 def parse_args(argv):
     # Returns: (cmd, local_port, device_port, serial)
-    # cmd: 'set', 'unset', 'status', 'help', 'update'
+    # cmd: 'set', 'unset', 'status', 'help', 'update', 'version'
     if len(argv) == 2 and argv[1] in ['-h', '--help']:
         return ('help', None, None, None)
     if len(argv) >= 2 and argv[1] == '--status':
@@ -106,6 +107,10 @@ def parse_args(argv):
                 print("[!] Missing serial after --device.")
                 sys.exit(1)
         return ('unset', None, None, serial)
+    if len(argv) >= 2 and argv[1] == '--update':
+        return ('update', None, None, None)
+    if len(argv) >= 2 and argv[1] == '--version':
+        return ('version', None, None, None)
     if len(argv) >= 3:
         local_port = argv[1]
         device_port = argv[2]
@@ -118,32 +123,37 @@ def parse_args(argv):
                 print("[!] Missing serial after --device.")
                 sys.exit(1)
         return ('set', local_port, device_port, serial)
-    if len(argv) >= 2 and argv[1] == '--update':
-        return ('update', None, None, None)
     return (None, None, None, None)
 
 def update_script():
     import os
     import shutil
     import urllib.request
-    GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adb-rvproxy/main/adb_rvproxy.py"
-    print("[+] Updating script from GitHub...")
+    import re
+    GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adbrv/main/adbrv.py"
+    print("[+] Checking for updates from GitHub...")
     try:
         with urllib.request.urlopen(GITHUB_RAW_URL) as response:
-            new_code = response.read()
+            new_code = response.read().decode('utf-8')
+        # Extract version from new_code
+        m = re.search(r'__version__\s*=\s*"([^"]+)"', new_code)
+        new_version = m.group(1) if m else None
         script_path = os.path.realpath(__file__)
-        # Lấy version hiện tại từ script (nếu có)
-        version = "unknown"
-        with open(script_path, "r") as f:
-            for line in f:
-                if "__version__" in line:
-                    version = line.split('=')[1].strip().strip('"\'')
-                    break
+        # Get current version
+        current_version = __version__
+        if new_version is None:
+            print("[!] Could not determine version of the downloaded script.")
+            sys.exit(1)
+        if new_version == current_version:
+            print(f"[i] You are already using the latest version ({current_version}).")
+            sys.exit(0)
+        # Backup current script
         backup_dir = os.path.join(os.path.dirname(script_path), "backup")
         os.makedirs(backup_dir, exist_ok=True)
-        backup_path = os.path.join(backup_dir, f"adb_rvproxy.py.bak.{version}")
+        backup_path = os.path.join(backup_dir, f"adbrv.py.bak.{current_version}")
         shutil.copy2(script_path, backup_path)
-        with open(script_path, "wb") as f:
+        # Write new code
+        with open(script_path, "w", encoding="utf-8") as f:
             f.write(new_code)
         print(f"[+] Update successful! (Backup saved as {backup_path})")
         print("[!] Please re-run the script.")
@@ -165,6 +175,10 @@ def main():
 
     elif cmd == 'update':
         update_script()
+        sys.exit(0)
+
+    elif cmd == 'version':
+        print(f"adbrv version {__version__}")
         sys.exit(0)
 
     elif cmd == 'unset':
