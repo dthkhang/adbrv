@@ -106,7 +106,11 @@ def update_script():
         # Extract version from new_code
         m = re.search(r'__version__\s*=\s*"([^"]+)"', new_code)
         new_version = m.group(1) if m else None
-        script_path = os.path.realpath(__file__)
+        
+        # Find the actual adbrv.py script path
+        import adbrv
+        script_path = os.path.realpath(adbrv.__file__)
+        
         # Get current version
         from adbrv import __version__
         current_version = __version__
