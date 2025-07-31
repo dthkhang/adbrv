@@ -1,224 +1,74 @@
 #!/usr/bin/env python3
-__version__ = "1.0.0"
-import sys, subprocess
-
-def print_help():
-    print("""
-Adb reverse proxy:
-  adbrv <local_port> <device_port> [--device <serial>]
-  adbrv --unset [--device <serial>]
-  adbrv --status
-  adbrv --update
-  adbrv --version
-  adbrv -h | --help
-    """)
-
-def is_valid_port(port):
-    try:
-        port = int(port)
-        return 1 <= port <= 65535
-    except ValueError:
-        return False
-
-def get_connected_devices():
-    try:
-        result = subprocess.run(["adb", "devices"], capture_output=True, text=True)
-        lines = result.stdout.strip().splitlines()[1:]  # skip first line
-        devices = [line.split()[0] for line in lines if '\tdevice' in line]
-        return devices
-    except Exception as e:
-        print(f"[!] Error running adb: {e}")
-        sys.exit(1)
-
-def set_proxy(local_port, device_port, serial=None):
-    adb_base = ["adb"]
-    if serial:
-        adb_base += ["-s", serial]
-    print(f"[+] Reversing tcp:{local_port} → tcp:{device_port}")
-    try:
-        subprocess.run(adb_base + ["reverse", f"tcp:{local_port}", f"tcp:{device_port}"], check=True)
-        print(f"[+] Setting proxy on device to localhost:{local_port}")
-        subprocess.run(adb_base + ["shell", "settings", "put", "global", "http_proxy", f"localhost:{local_port}"], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"[!] Error: {e}")
-        print("[!] Device may have been disconnected during operation.")
-        sys.exit(1)
-
-def unset_proxy_and_reverse(serial=None):
-    adb_base = ["adb"]
-    if serial:
-        adb_base += ["-s", serial]
-    try:
-        print("[+] Unsetting proxy on device")
-        subprocess.run(adb_base + ["shell", "settings", "put", "global", "http_proxy", ":0"], check=True)
-        print("[+] Removing all reverse ports on device")
-        subprocess.run(adb_base + ["reverse", "--remove-all"], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"[!] Error: {e}")
-        print("[!] Device may have been disconnected during operation.")
-        sys.exit(1)
-
-def get_proxy_status(serial=None):
-    adb_base = ["adb"]
-    if serial:
-        adb_base += ["-s", serial]
-    try:
-        result = subprocess.run(adb_base + ["shell", "settings", "get", "global", "http_proxy"], capture_output=True, text=True, check=True)
-        return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        return "[Error: device disconnected]"
-
-def get_reverse_ports(serial=None):
-    adb_base = ["adb"]
-    if serial:
-        adb_base += ["-s", serial]
-    try:
-        result = subprocess.run(adb_base + ["reverse", "--list"], capture_output=True, text=True, check=True)
-        return result.stdout.strip() or "(none)"
-    except subprocess.CalledProcessError:
-        return "[Error: device disconnected]"
-
-def print_all_status():
-    devices = get_connected_devices()
-    if not devices:
-        print("[!] No devices connected.")
-        return
-    for serial in devices:
-        proxy = get_proxy_status(serial)
-        reverse = get_reverse_ports(serial)
-        print(f"Device {serial}:")
-        print(f"  Proxy:   {proxy}")
-        print(f"  Reverse: {reverse}")
-
-def parse_args(argv):
-    # Returns: (cmd, local_port, device_port, serial)
-    # cmd: 'set', 'unset', 'status', 'help', 'update', 'version'
-    if len(argv) == 2 and argv[1] in ['-h', '--help']:
-        return ('help', None, None, None)
-    if len(argv) >= 2 and argv[1] == '--status':
-        return ('status', None, None, None)
-    if len(argv) >= 2 and argv[1] == '--unset':
-        serial = None
-        if '--device' in argv:
-            idx = argv.index('--device')
-            if idx+1 < len(argv):
-                serial = argv[idx+1]
-            else:
-                print("[!] Missing serial after --device.")
-                sys.exit(1)
-        return ('unset', None, None, serial)
-    if len(argv) >= 2 and argv[1] == '--update':
-        return ('update', None, None, None)
-    if len(argv) >= 2 and argv[1] == '--version':
-        return ('version', None, None, None)
-    if len(argv) >= 3:
-        local_port = argv[1]
-        device_port = argv[2]
-        serial = None
-        if '--device' in argv:
-            idx = argv.index('--device')
-            if idx+1 < len(argv):
-                serial = argv[idx+1]
-            else:
-                print("[!] Missing serial after --device.")
-                sys.exit(1)
-        return ('set', local_port, device_port, serial)
-    return (None, None, None, None)
-
-def update_script():
-    import os
-    import shutil
-    import urllib.request
-    import re
-    GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adbrv/main/adbrv.py"
-    print("[+] Checking for updates from GitHub...")
-    try:
-        with urllib.request.urlopen(GITHUB_RAW_URL) as response:
-            new_code = response.read().decode('utf-8')
-        # Extract version from new_code
-        m = re.search(r'__version__\s*=\s*"([^"]+)"', new_code)
-        new_version = m.group(1) if m else None
-        script_path = os.path.realpath(__file__)
-        # Get current version
-        current_version = __version__
-        if new_version is None:
-            print("[!] Could not determine version of the downloaded script.")
-            sys.exit(1)
-        if new_version == current_version:
-            print(f"[i] You are already using the latest version ({current_version}).")
-            sys.exit(0)
-        # Backup current script
-        backup_dir = os.path.join(os.path.dirname(script_path), "backup")
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_path = os.path.join(backup_dir, f"adbrv.py.bak.{current_version}")
-        shutil.copy2(script_path, backup_path)
-        # Write new code
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(new_code)
-        print(f"[+] Update successful! (Backup saved as {backup_path})")
-        print("[!] Please re-run the script.")
-        sys.exit(0)
-    except Exception as e:
-        print(f"[!] Update failed: {e}")
-        sys.exit(1)
+__version__ = "1.1.0"
+import sys
+from adbrv_module.proxy import set_proxy, unset_proxy_and_reverse, ProxyError
+from adbrv_module.devices import get_connected_devices, print_all_status, check_devices_info, frida_kill, AdbError
+from adbrv_module.core import print_help, is_valid_port, parse_args, update_script, CoreError
 
 def main():
-    cmd, local_port, device_port, serial = parse_args(sys.argv)
-
-    if cmd == 'help':
-        print_help()
-        sys.exit(0)
-
-    elif cmd == 'status':
-        print_all_status()
-        sys.exit(0)
-
-    elif cmd == 'update':
-        update_script()
-        sys.exit(0)
-
-    elif cmd == 'version':
-        print(f"adbrv version {__version__}")
-        sys.exit(0)
-
-    elif cmd == 'unset':
-        devices = get_connected_devices()
-        if not devices:
-            print("[!] No devices connected.")
-            sys.exit(1)
-        if serial:
-            if serial not in devices:
-                print(f"[!] Device {serial} not found.")
+    try:
+        cmd, local_port, device_port, serial = parse_args(sys.argv)
+        if cmd == 'help':
+            print_help()
+            sys.exit(0)
+        elif cmd == 'status':
+            devices = get_connected_devices()
+            if serial:
+                if serial not in devices:
+                    print(f"[!] Device {serial} not found.")
+                    sys.exit(1)
+                check_devices_info(serial)
+            else:
+                check_devices_info()
+            sys.exit(0)
+        elif cmd == 'update':
+            update_script()
+            sys.exit(0)
+        elif cmd == 'version':
+            print(f"adbrv version {__version__}")
+            sys.exit(0)
+        elif cmd == 'unset':
+            devices = get_connected_devices()
+            if not devices:
+                print("[!] No devices connected.")
                 sys.exit(1)
-            unset_proxy_and_reverse(serial)
+            if serial:
+                if serial not in devices:
+                    print(f"[!] Device {serial} not found.")
+                    sys.exit(1)
+                unset_proxy_and_reverse(serial)
+            else:
+                for d in devices:
+                    unset_proxy_and_reverse(d)
+            sys.exit(0)
+        elif cmd == 'set':
+            if not is_valid_port(local_port) or not is_valid_port(device_port):
+                print("[!] Invalid port. Port must be an integer between 1 and 65535.")
+                sys.exit(1)
+            devices = get_connected_devices()
+            if not devices:
+                print("[!] No devices connected.")
+                sys.exit(1)
+            if serial:
+                if serial not in devices:
+                    print(f"[!] Device {serial} not found.")
+                    sys.exit(1)
+                set_proxy(local_port, device_port, serial)
+            else:
+                if len(devices) > 1:
+                    print("[!] Multiple devices connected. Please specify --device <serial>.")
+                    sys.exit(1)
+                set_proxy(local_port, device_port, devices[0])
+            sys.exit(0)
+        elif cmd == 'frida_kill':
+            frida_kill(serial)
+            sys.exit(0)
         else:
-            for d in devices:
-                unset_proxy_and_reverse(d)
-        sys.exit(0)
-
-    elif cmd == 'set':
-        if not is_valid_port(local_port) or not is_valid_port(device_port):
-            print("[!] Invalid port. Port must be an integer between 1 and 65535.")
+            print("[!] Invalid arguments.")
+            print_help()
             sys.exit(1)
-        devices = get_connected_devices()
-        if not devices:
-            print("[!] No devices connected.")
-            sys.exit(1)
-        if serial:
-            if serial not in devices:
-                print(f"[!] Device {serial} not found.")
-                sys.exit(1)
-            set_proxy(local_port, device_port, serial)
-        else:
-            if len(devices) > 1:
-                print("[!] Multiple devices connected. Please specify --device <serial>.")
-                sys.exit(1)
-            set_proxy(local_port, device_port, devices[0])
-        sys.exit(0)
-    else:
-        print("[!] Invalid arguments.")
-        print_help()
+    except (AdbError, ProxyError, CoreError) as e:
+        print(f"[!] {e}")
         sys.exit(1)
-
 if __name__ == "__main__":
     main()

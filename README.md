@@ -23,7 +23,13 @@
   - `--unset` will remove all reverse ports and reset HTTP proxy settings.
 
 - 📊 **Status reporting**
-  - `--status` displays all connected devices, active proxy settings, and reverse port mappings.
+  - `--status` displays all connected devices, active proxy settings, and reverse port mappings in a clear tree format.
+
+- 🧩 **Frida management**
+  - `--frida kill` to kill all running frida-server processes (with confirmation if multiple processes).
+  - Status output shows Frida server PID if running.
+  - **To start frida-server, please do it manually via adb shell and su.**
+  - **Recommended:** Use frida-server version 16.6.3 for best stability.
 
 - ⚙️ **Reliable subprocess execution**
   - Uses `subprocess` instead of `os.system` for better control and output handling.
@@ -83,14 +89,19 @@ If no device appears, try:
 ## 🚀 Usage
 
 ```bash
-adbrv <local_port> <device_port> [--device <serial>]
+adbrv --set <local_port> <device_port> [--device <serial>]
     # Set up ADB reverse and HTTP proxy on the Android device
 
 adbrv --unset [--device <serial>]
     # Remove proxy and all reverse ports on the selected (or all) devices
 
-adbrv --status
-    # Display proxy and reverse port status for each connected device
+adbrv --status [--device <serial>]
+    # Display proxy, reverse port, and frida-server status for each connected device
+
+adbrv --frida kill [--device <serial>]
+    # Kill all running frida-server processes on the device
+    # If multiple processes are found, you will be asked to confirm before killing all
+    # After stopping, the status will be checked and displayed
 
 adbrv --update
     # Automatically update the script to the latest version from GitHub
@@ -109,25 +120,34 @@ adbrv -h | --help
 * Set proxy on the only connected device:
 
   ```bash
-  adbrv 8083 8083
+  adbrv --set 8083 8083
   ```
 
 * Set proxy on a specific device:
 
   ```bash
-  adbrv 8083 8083 --device emulator-5554
+  adbrv --set 8083 8083 --device emulator-5554
   ```
 
 * Unset proxy and remove all reverse ports:
 
   ```bash
   adbrv --unset
+  adbrv --unset --device emulator-5554
   ```
 
-* View current proxy and reverse status:
+* View current proxy, reverse, and frida-server status:
 
   ```bash
   adbrv --status
+  adbrv --status --device emulator-5554
+  ```
+
+* Kill frida-server:
+
+  ```bash
+  adbrv --frida kill
+  adbrv --frida kill --device emulator-5554
   ```
 
 * Update the script to the latest version from GitHub:
@@ -136,13 +156,27 @@ adbrv -h | --help
   adbrv --update
   ```
 
-  > The script will automatically download the latest version from GitHub, overwrite the current file (and create a backup as `adbrv.py.bak`). If you are already using the latest version, it will notify you. After updating, simply re-run the script to use the newest version.
-
 * Check the current version:
 
   ```bash
   adbrv --version
   ```
+
+* Show help:
+
+  ```bash
+  adbrv --help
+  adbrv -h
+  ```
+
+---
+
+## 📝 Notes
+
+- If no device is specified and multiple devices are connected, you will be prompted to specify a device.
+- **To start frida-server, please do it manually via adb shell and su.**
+- **Only --frida kill is automated.**
+- **Recommended:** Use frida-server version 16.6.3 for best stability.
 
 ---
 
