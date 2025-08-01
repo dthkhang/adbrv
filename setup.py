@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='adbrv',
-    version='1.1.0',
+    version='1.2.0',
     description='ADB reverse port forwarding and HTTP proxy configuration for Android devices.',
     author='kx4n9',
     author_email='dthkhang@gmail.com',
