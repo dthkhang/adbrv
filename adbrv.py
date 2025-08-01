@@ -2,7 +2,7 @@
 __version__ = "1.1.0"
 import sys
 from adbrv_module.proxy import set_proxy, unset_proxy_and_reverse, ProxyError
-from adbrv_module.devices import get_connected_devices, print_all_status, check_devices_info, frida_kill, AdbError
+from adbrv_module.devices import get_connected_devices, print_all_status, check_devices_info, frida_kill, start_frida_server, AdbError
 from adbrv_module.core import print_help, is_valid_port, parse_args, update_script, CoreError
 
 def main():
@@ -62,6 +62,9 @@ def main():
             sys.exit(0)
         elif cmd == 'frida_kill':
             frida_kill(serial)
+            sys.exit(0)
+        elif cmd == 'frida_start':
+            start_frida_server(serial)
             sys.exit(0)
         else:
             print("[!] Invalid arguments.")

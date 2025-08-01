@@ -24,11 +24,12 @@
 
 - 📊 **Status reporting**
   - `--status` displays all connected devices, active proxy settings, and reverse port mappings in a clear tree format.
+  - Enhanced Frida status shows user (root/shell) and PID information.
 
 - 🧩 **Frida management**
+  - `--frida on` to start frida-server automatically with root privileges.
   - `--frida kill` to kill all running frida-server processes (with confirmation if multiple processes).
-  - Status output shows Frida server PID if running.
-  - **To start frida-server, please do it manually via adb shell and su.**
+  - Status output shows Frida server user (root/shell) and PID if running.
   - **Recommended:** Use frida-server version 16.6.3 for best stability.
 
 - ⚙️ **Reliable subprocess execution**
@@ -98,6 +99,9 @@ adbrv --unset [--device <serial>]
 adbrv --status [--device <serial>]
     # Display proxy, reverse port, and frida-server status for each connected device
 
+adbrv --frida on [--device <serial>]
+    # Start frida-server on the device with root privileges
+
 adbrv --frida kill [--device <serial>]
     # Kill all running frida-server processes on the device
     # If multiple processes are found, you will be asked to confirm before killing all
@@ -143,6 +147,24 @@ adbrv -h | --help
   adbrv --status --device emulator-5554
   ```
 
+  Example output:
+  ```
+  Device 0A091FDD4000G0
+  ├── Model       : Pixel 5
+  ├── Android     : 14
+  ├── Root Access : Yes
+  ├── Frida       : On (root - PID: 11499)
+  ├── Proxy       : localhost:8083
+  └── Reverse     : tcp:8083 tcp:8083
+  ```
+
+* Start frida-server:
+
+  ```bash
+  adbrv --frida on
+  adbrv --frida on --device emulator-5554
+  ```
+
 * Kill frida-server:
 
   ```bash
@@ -174,8 +196,7 @@ adbrv -h | --help
 ## 📝 Notes
 
 - If no device is specified and multiple devices are connected, you will be prompted to specify a device.
-- **To start frida-server, please do it manually via adb shell and su.**
-- **Only --frida kill is automated.**
+- **Frida management is fully automated:** Both start and kill commands are available.
 - **Recommended:** Use frida-server version 16.6.3 for best stability.
 
 ---

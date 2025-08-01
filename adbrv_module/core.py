@@ -11,6 +11,7 @@ Command                                Description
 ---------------------------------------------------------------
 adbrv --set <local_port> <device_port>  Set up reverse proxy
 adbrv --unset [--device <serial>]      Remove proxy/reverse
+adbrv --frida on [--device <serial>]   Start frida-server
 adbrv --frida kill [--device <serial>]  Kill frida-server
 adbrv --status [--device <serial>]     Show device status
 adbrv --update                         Update this script
@@ -27,6 +28,7 @@ Examples:
   adbrv --unset --device <serial>         Remove proxy/reverse for specific device
   adbrv --status --device <serial>        Show status for specific device
   adbrv --frida kill                      Kill frida-server
+  adbrv --frida on [--device <serial>]    Start frida-server on the device
   adbrv --frida kill [--device <serial>]  Kill all running frida-server processes on the device. If multiple processes are found, you will be asked to confirm before killing all. After stopping, the status will be checked and displayed.
   adbrv --status                          Show device status
   adbrv --update                          Update this script
@@ -73,16 +75,28 @@ def parse_args(argv):
     if len(argv) >= 2 and argv[1] == '--version':
         return ('version', None, None, None)
     if len(argv) >= 2 and argv[1] == '--frida':
-        if len(argv) < 3 or argv[2] != 'kill':
+        if len(argv) < 3:
             return ('help', None, None, None)
-        serial = None
-        if '--device' in argv:
-            idx = argv.index('--device')
-            if idx+1 < len(argv):
-                serial = argv[idx+1]
-            else:
-                raise CoreError("Missing serial after --device.")
-        return ('frida_kill', None, None, serial)
+        if argv[2] == 'kill':
+            serial = None
+            if '--device' in argv:
+                idx = argv.index('--device')
+                if idx+1 < len(argv):
+                    serial = argv[idx+1]
+                else:
+                    raise CoreError("Missing serial after --device.")
+            return ('frida_kill', None, None, serial)
+        elif argv[2] == 'on':
+            serial = None
+            if '--device' in argv:
+                idx = argv.index('--device')
+                if idx+1 < len(argv):
+                    serial = argv[idx+1]
+                else:
+                    raise CoreError("Missing serial after --device.")
+            return ('frida_start', None, None, serial)
+        else:
+            return ('help', None, None, None)
     if len(argv) >= 4 and argv[1] == '--set':
         local_port = argv[2]
         device_port = argv[3]

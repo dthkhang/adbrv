@@ -76,16 +76,20 @@ def check_devices_info(serial=None):
         if frida_ps and "frida-server" in frida_ps:
             try:
                 pid = None
+                user = "shell"
                 for line in frida_ps.splitlines():
                     if "frida-server" in line:
                         parts = line.split()
+                        # First column is usually USER
+                        if len(parts) > 0:
+                            user = parts[0]
                         for p in parts[1:]:
                             if p.isdigit():
                                 pid = p
                                 break
                         if pid:
                             break
-                frida_status = f"On (PID: {pid})" if pid else "On"
+                frida_status = f"On ({user} - PID: {pid})" if pid else f"On ({user})"
             except Exception:
                 frida_status = "On"
         else:
@@ -109,6 +113,84 @@ def adb_shell(cmd, serial=None, check=True, input_text=None):
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return None
+
+def start_frida_server(serial=None):
+    """Start frida-server on Android device"""
+    import time
+    
+    devices = get_connected_devices()
+    if not devices:
+        raise AdbError("No devices connected.")
+    if not serial:
+        if len(devices) == 1:
+            serial = devices[0]
+        else:
+            raise AdbError("Multiple devices connected. Please specify --device <serial>.")
+    
+    adb_base = ["adb"]
+    if serial:
+        adb_base += ["-s", serial]
+    
+    fs = "/data/local/tmp/frida-server*"
+    
+    try:
+        # Check if frida-server exists
+        result = subprocess.run(adb_base + ["shell", "ls", fs], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print("\033[1;31m[-] Frida Server Not Found!!\033[0m")
+            return False
+            
+        # Get frida-server filename
+        frida_files = result.stdout.strip().splitlines()
+        if not frida_files:
+            print("\033[1;31m[-] No frida-server files found!\033[0m")
+            return False
+            
+        fsName = frida_files[0]
+        print(f"[*] Found Frida Server: {fsName}")
+        
+        # Check if already running
+        ps_result = subprocess.run(adb_base + ["shell", "ps", "|", "grep", "frida-server"], 
+                                 capture_output=True, text=True)
+        
+        if "frida-server" in ps_result.stdout:
+            print("[!] Frida Server Is Running")
+            return True
+            
+        # Start frida-server
+        print("[*] Start Frida Server...")
+        print("[*] Please wait...")
+        
+        # Set executable permission
+        subprocess.run(adb_base + ["shell", "chmod", "+x", fsName], check=True)
+        
+        # Start with root privileges (run in background)
+        try:
+            subprocess.run(adb_base + ["shell", "su", "-c", f"{fsName} &"], check=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            # Timeout is expected when starting background process
+            pass
+        
+        time.sleep(2)
+        
+        # Verify start
+        verify_result = subprocess.run(adb_base + ["shell", "ps", "|", "grep", "frida-server"], 
+                                     capture_output=True, text=True)
+        
+        if "frida-server" in verify_result.stdout:
+            print("[*] Frida Server Start Success!!")
+            return True
+        else:
+            print("\033[1;31m[-] Frida Server Start Failed!! Check & Try Again\033[0m")
+            return False
+            
+    except subprocess.CalledProcessError as e:
+        print(f"\033[1;31m[-] Error: {e}\033[0m")
+        return False
+    except Exception as e:
+        print(f"\033[1;31m[-] Unexpected error: {e}\033[0m")
+        return False
 
 def frida_kill(serial=None):
     devices = get_connected_devices()
@@ -171,16 +253,20 @@ def get_device_info(serial):
     if frida_ps and "frida-server" in frida_ps:
         try:
             pid = None
+            user = "shell"
             for line in frida_ps.splitlines():
                 if "frida-server" in line:
                     parts = line.split()
+                    # First column is usually USER
+                    if len(parts) > 0:
+                        user = parts[0]
                     for p in parts[1:]:
                         if p.isdigit():
                             pid = p
                             break
                     if pid:
                         break
-            frida_status = f"On (PID: {pid})" if pid else "On"
+            frida_status = f"On ({user} - PID: {pid})" if pid else f"On ({user})"
         except Exception:
             frida_status = "On"
     else:
