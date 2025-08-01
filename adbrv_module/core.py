@@ -111,37 +111,51 @@ def parse_args(argv):
     return (None, None, None, None)
 
 def update_script():
-    import os, shutil, re, urllib.request
-    GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adbrv/main/adbrv.py"
+    import os, shutil, re, urllib.request, subprocess, sys
     print("[+] Checking for updates from GitHub...")
     try:
+        # Get current version
+        from adbrv import __version__
+        current_version = __version__
+        
+        # Check if we're running from installed package
+        import adbrv
+        script_path = os.path.realpath(adbrv.__file__)
+        
+        # If running from installed package, suggest pip update
+        if "site-packages" in script_path:
+            print("[i] You are using the installed package version.")
+            print("[i] To update, please run: pip install --upgrade adbrv")
+            print("[i] Or reinstall from source: pip install --force-reinstall .")
+            return
+        
+        # If running from source, update from GitHub
+        GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adbrv/main/adbrv.py"
         with urllib.request.urlopen(GITHUB_RAW_URL) as response:
             new_code = response.read().decode('utf-8')
+        
         # Extract version from new_code
         m = re.search(r'__version__\s*=\s*"([^"]+)"', new_code)
         new_version = m.group(1) if m else None
         
-        # Find the actual adbrv.py script path
-        import adbrv
-        script_path = os.path.realpath(adbrv.__file__)
-        
-        # Get current version
-        from adbrv import __version__
-        current_version = __version__
         if new_version is None:
             raise CoreError("Could not determine version of the downloaded script.")
         if new_version == current_version:
             print(f"[i] You are already using the latest version ({current_version}).")
             return
+        
         # Backup current script
         backup_dir = os.path.join(os.path.dirname(script_path), "backup")
         os.makedirs(backup_dir, exist_ok=True)
         backup_path = os.path.join(backup_dir, f"adbrv.py.bak.{current_version}")
         shutil.copy2(script_path, backup_path)
+        
         # Write new code
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(new_code)
+        
         print(f"[+] Update successful! (Backup saved as {backup_path})")
+        print("[i] Note: If you're using the installed package, please run: pip install --upgrade adbrv")
         print("[!] Please re-run the script.")
     except Exception as e:
         raise CoreError(f"Update failed: {e}")
