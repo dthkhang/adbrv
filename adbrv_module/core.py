@@ -122,12 +122,30 @@ def update_script():
         import adbrv
         script_path = os.path.realpath(adbrv.__file__)
         
-        # If running from installed package, suggest pip update
+        # If running from installed package, auto update via pip
         if "site-packages" in script_path:
             print("[i] You are using the installed package version.")
-            print("[i] To update, please run: pip install --upgrade adbrv")
-            print("[i] Or reinstall from source: pip install --force-reinstall .")
-            return
+            print("[+] Auto-updating via pip...")
+            
+            try:
+                # Run pip install --upgrade from GitHub
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "git+https://github.com/dthkhang/adbrv.git"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                print("[+] Update successful!")
+                print("[i] Please re-run the script to use the new version.")
+                return
+            except subprocess.CalledProcessError as e:
+                print(f"[-] Update failed: {e}")
+                print("[i] You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
+                return
+            except Exception as e:
+                print(f"[-] Unexpected error during update: {e}")
+                print("[i] You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
+                return
         
         # If running from source, update from GitHub
         GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adbrv/main/adbrv.py"
@@ -155,7 +173,6 @@ def update_script():
             f.write(new_code)
         
         print(f"[+] Update successful! (Backup saved as {backup_path})")
-        print("[i] Note: If you're using the installed package, please run: pip install --upgrade adbrv")
         print("[!] Please re-run the script.")
     except Exception as e:
         raise CoreError(f"Update failed: {e}")
