@@ -9,6 +9,9 @@ setup(
     url='https://github.com/dthkhang/adbrv',
     packages=['adbrv_module'],
     py_modules=['adbrv'],
+    package_data={
+        'adbrv_module': ['tools/uber-apk-signer-1.3.0.jar'],
+    },
     entry_points={
         'console_scripts': [
             'adbrv=adbrv:main',
