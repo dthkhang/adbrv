@@ -6,6 +6,7 @@
 
 ---
 
+
 ## ✨ Features
 
 - 🔢 **Port validation**
@@ -31,6 +32,10 @@
   - `--frida kill` to kill all running frida-server processes (with confirmation if multiple processes).
   - Status output shows Frida server user (root/shell) and PID if running.
   - **Recommended:** Use frida-server version 16.6.3 for best stability.
+
+- 🗝️ **APK resigning (uber-apk-signer integration)**
+  - `--resign` flag allows you to resign APK files directly from adbrv using the integrated [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer).
+  - Supports all original uber-apk-signer options and flags.
 
 - ⚙️ **Reliable subprocess execution**
   - Uses `subprocess` instead of `os.system` for better control and output handling.
@@ -89,37 +94,38 @@ If no device appears, try:
 
 ## 🚀 Usage
 
+adbrv --status [--device <serial>]
+adbrv --frida on [--device <serial>]
+adbrv --frida kill [--device <serial>]
+adbrv --update
+adbrv --version
+adbrv -h | --help
+
 ```bash
 adbrv --set <local_port> <device_port> [--device <serial>]
     # Set up ADB reverse and HTTP proxy on the Android device
-
 adbrv --unset [--device <serial>]
     # Remove proxy and all reverse ports on the selected (or all) devices
-
 adbrv --status [--device <serial>]
     # Display proxy, reverse port, and frida-server status for each connected device
-
 adbrv --frida on [--device <serial>]
     # Start frida-server on the device with root privileges
-
 adbrv --frida kill [--device <serial>]
     # Kill all running frida-server processes on the device
     # If multiple processes are found, you will be asked to confirm before killing all
     # After stopping, the status will be checked and displayed
-
 adbrv --update
     # Automatically update the script to the latest version from GitHub
-
 adbrv --version
     # Show current version
-
 adbrv -h | --help
     # Show help message
+adbrv --resign --apk <file.apk> [any other uber-apk-signer options]
+    # Resign APK file using the integrated uber-apk-signer tool
 ```
 
 ---
 
-## 📚 Examples
 
 * Set proxy on the only connected device:
 
@@ -193,8 +199,35 @@ adbrv -h | --help
 
 ---
 
-## 📝 Notes
 
+
+## 📝 APK Resign & Uber APK Signer Integration
+
+adbrv natively integrates [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer) to help you quickly resign APK files.
+
+### Usage
+
+```bash
+adbrv --resign --apk <file.apk> [any other uber-apk-signer options]
+```
+
+Example:
+
+```bash
+adbrv --resign --apk retest.apk
+```
+
+You can use any original flag of uber-apk-signer, for example:
+
+```bash
+adbrv --resign -h
+adbrv --resign --apk my.apk --ks my.keystore --ksAlias alias --ksPass pass
+```
+
+> Note: The file `uber-apk-signer-1.3.0.jar` is bundled in `adbrv_module/tools/`. Java must be installed on your system to use this feature.
+
+---
+## 📝 Notes
 - If no device is specified and multiple devices are connected, you will be prompted to specify a device.
 - **Frida management is fully automated:** Both start and kill commands are available.
 - **Recommended:** Use frida-server version 16.6.3 for best stability.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 import sys
 from adbrv_module.proxy import set_proxy, unset_proxy_and_reverse, ProxyError
 from adbrv_module.devices import get_connected_devices, print_all_status, check_devices_info, frida_kill, start_frida_server, AdbError
@@ -7,6 +7,26 @@ from adbrv_module.core import print_help, is_valid_port, parse_args, update_scri
 
 def main():
     try:
+        # Check for --resign flag and forward to uber-apk-signer if present
+        if '--resign' in sys.argv:
+            import subprocess
+            import os
+            idx = sys.argv.index('--resign')
+            # All args after --resign are for uber-apk-signer
+            resign_args = sys.argv[idx+1:]
+            jar_path = os.path.join(os.path.dirname(__file__), 'adbrv_module', 'tools', 'uber-apk-signer-1.3.0.jar')
+            if not os.path.isfile(jar_path):
+                print(f"[!] uber-apk-signer jar not found at {jar_path}")
+                sys.exit(1)
+            cmd = ['java', '-jar', jar_path] + resign_args
+            try:
+                result = subprocess.run(cmd)
+                sys.exit(result.returncode)
+            except Exception as e:
+                print(f"[!] Error running uber-apk-signer: {e}")
+                sys.exit(1)
+
+        # ...existing code...
         cmd, local_port, device_port, serial = parse_args(sys.argv)
         if cmd == 'help':
             print_help()
