@@ -31,6 +31,7 @@
   - `--frida on` to start frida-server automatically with root privileges.
   - `--frida kill` to kill all running frida-server processes (with confirmation if multiple processes).
   - Status output shows Frida server user (root/shell) and PID if running.
+  - **Important:** The frida-server binary in `/data/local/tmp` must be named starting with `frida-server` (e.g. `frida-server`, `frida-server-16.6.3`). Otherwise, adbrv cannot detect or manage it.
   - **Recommended:** Use frida-server version 16.6.3 for best stability.
 
 - 🗝️ **APK resigning (uber-apk-signer integration)**

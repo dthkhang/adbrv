@@ -139,41 +139,54 @@ def start_frida_server(serial=None):
         
         if result.returncode != 0:
             print("\033[1;31m[-] Frida Server Not Found!!\033[0m")
+            print("[!] Please check the frida-server filename in /data/local/tmp. It must start with 'frida-server'.")
             return False
-            
         # Get frida-server filename
         frida_files = result.stdout.strip().splitlines()
         if not frida_files:
             print("\033[1;31m[-] No frida-server files found!\033[0m")
+            print("[!] Please check the frida-server filename in /data/local/tmp. It must start with 'frida-server'.")
             return False
             
-        fsName = frida_files[0]
-        print(f"[*] Found Frida Server: {fsName}")
-        
+        if len(frida_files) == 1:
+            fsName = frida_files[0]
+            print(f"[*] Found Frida Server: {fsName}")
+        else:
+            print(f"[*] Found {len(frida_files)} Frida Server files:")
+            for idx, fname in enumerate(frida_files):
+                print(f"  [{idx+1}] {fname}")
+            while True:
+                choice = input(f"Select which frida-server to start [1-{len(frida_files)}]: ").strip()
+                if choice.isdigit() and 1 <= int(choice) <= len(frida_files):
+                    fsName = frida_files[int(choice)-1]
+                    break
+                print("Invalid selection. Please enter a valid number.")
+            print(f"[*] Selected Frida Server: {fsName}")
+
         # Check if already running
         ps_result = subprocess.run(adb_base + ["shell", "ps", "|", "grep", "frida-server"], 
                                  capture_output=True, text=True)
-        
+
         if "frida-server" in ps_result.stdout:
             print("[!] Frida Server Is Running")
             return True
-            
+
         # Start frida-server
         print("[*] Start Frida Server...")
         print("[*] Please wait...")
-        
+
         # Set executable permission
         subprocess.run(adb_base + ["shell", "chmod", "+x", fsName], check=True)
-        
+
         # Start with root privileges (run in background)
         try:
             subprocess.run(adb_base + ["shell", "su", "-c", f"{fsName} &"], check=True, timeout=10)
         except subprocess.TimeoutExpired:
             # Timeout is expected when starting background process
             pass
-        
+
         time.sleep(2)
-        
+
         # Verify start
         verify_result = subprocess.run(adb_base + ["shell", "ps", "|", "grep", "frida-server"], 
                                      capture_output=True, text=True)
@@ -230,8 +243,16 @@ def frida_kill(serial=None):
             print("[i] Abort killing frida-server processes.")
             return
     for pid, _ in procs:
-        adb_shell(["su", "-c", f"kill -9 {pid}"], serial)
-        print(f"[+] Killed frida-server process PID {pid} on device {serial}.")
+        # Use correct shell quoting for Android su
+        adb_base = ["adb"]
+        if serial:
+            adb_base += ["-s", serial]
+        kill_cmd = f"su -c 'kill -9 {pid}'"
+        try:
+            subprocess.run(adb_base + ["shell", kill_cmd], check=True)
+            print(f"[+] Killed frida-server process PID {pid} on device {serial}.")
+        except Exception as e:
+            print(f"[!] Failed to kill PID {pid}: {e}")
     print("[i] Checking frida-server status...")
     check_devices_info(serial)
 

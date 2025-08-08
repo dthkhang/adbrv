@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 import sys
 from adbrv_module.proxy import set_proxy, unset_proxy_and_reverse, ProxyError
 from adbrv_module.devices import get_connected_devices, print_all_status, check_devices_info, frida_kill, start_frida_server, AdbError
