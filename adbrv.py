@@ -50,6 +50,7 @@ def main():
                 print(f'[!] No .so files found in {scan_dir}')
                 sys.exit(1)
             print(f'[*] Scanning .so files in: {scan_dir}')
+            print('------------------------------------------------------------')
             BLUE = '\033[94m'
             RESET = '\033[0m'
             for sofile in so_files:
