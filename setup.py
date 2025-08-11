@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='adbrv',
-    version='1.3.1',
+    version='1.4.0',
     description='ADB reverse port forwarding, HTTP proxy configuration, and APK resign (uber-apk-signer) for Android devices.',
     author='kx4n9',
     author_email='dthkhang@gmail.com',

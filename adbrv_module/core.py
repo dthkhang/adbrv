@@ -15,6 +15,7 @@ adbrv --frida on [--device <serial>]   Start frida-server
 adbrv --frida kill [--device <serial>]  Kill frida-server
 adbrv --status [--device <serial>]     Show device status
 adbrv --resign --apk <file.apk> [options]  Resign APK using integrated uber-apk-signer
+adbrv --checksym <path/to/base>  Check for internal symbols in .so files
 adbrv --update                         Update this script
 adbrv --version                        Show version
 adbrv -h | --help                      Show help
@@ -32,6 +33,7 @@ Examples:
   adbrv --frida on [--device <serial>]    Start frida-server on the device
   adbrv --frida kill [--device <serial>]  Kill all running frida-server processes on the device. If multiple processes are found, you will be asked to confirm before killing all. After stopping, the status will be checked and displayed.
   adbrv --resign --apk my.apk             Resign APK file (all uber-apk-signer options supported)
+  adbrv --checksym base                   Check for internal symbols in .so files in the specified directory (point to the folder containing full source code, e.g. 'base' from apktool d base.apk)
   adbrv --status                          Show device status
   adbrv --update                          Update this script
   adbrv --version                         Show version

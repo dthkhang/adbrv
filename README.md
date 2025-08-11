@@ -6,7 +6,6 @@
 
 ---
 
-
 ## ✨ Features
 
 - 🔢 **Port validation**
@@ -37,6 +36,11 @@
 - 🗝️ **APK resigning (uber-apk-signer integration)**
   - `--resign` flag allows you to resign APK files directly from adbrv using the integrated [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer).
   - Supports all original uber-apk-signer options and flags.
+
+- 🧪 **Native library symbol checker**
+  - `--checksym <apktool_output_folder>` scans native libraries (`.so` files) in your APK decompiled folder.
+  - Lists ABI folders (e.g. arm64-v8a, armeabi-v7a), lets you select which to scan.
+  - Checks for internal/debug and exported JNI symbols in each `.so` file, highlights library names in blue for easy reading.
 
 - ⚙️ **Reliable subprocess execution**
   - Uses `subprocess` instead of `os.system` for better control and output handling.
@@ -104,25 +108,27 @@ adbrv -h | --help
 
 ```bash
 adbrv --set <local_port> <device_port> [--device <serial>]
-    # Set up ADB reverse and HTTP proxy on the Android device
+  # Set up ADB reverse and HTTP proxy on the Android device
 adbrv --unset [--device <serial>]
-    # Remove proxy and all reverse ports on the selected (or all) devices
+  # Remove proxy and all reverse ports on the selected (or all) devices
 adbrv --status [--device <serial>]
-    # Display proxy, reverse port, and frida-server status for each connected device
+  # Display proxy, reverse port, and frida-server status for each connected device
 adbrv --frida on [--device <serial>]
-    # Start frida-server on the device with root privileges
+  # Start frida-server on the device with root privileges
 adbrv --frida kill [--device <serial>]
-    # Kill all running frida-server processes on the device
-    # If multiple processes are found, you will be asked to confirm before killing all
-    # After stopping, the status will be checked and displayed
+  # Kill all running frida-server processes on the device
+  # If multiple processes are found, you will be asked to confirm before killing all
+  # After stopping, the status will be checked and displayed
 adbrv --update
-    # Automatically update the script to the latest version from GitHub
+  # Automatically update the script to the latest version from GitHub
 adbrv --version
-    # Show current version
+  # Show current version
 adbrv -h | --help
-    # Show help message
+  # Show help message
 adbrv --resign --apk <file.apk> [any other uber-apk-signer options]
-    # Resign APK file using the integrated uber-apk-signer tool
+  # Resign APK file using the integrated uber-apk-signer tool
+adbrv --checksym <apktool_output_folder>
+  # Scan native libraries (.so) in the APK decompiled folder, select ABI, and check symbols
 ```
 
 ---
