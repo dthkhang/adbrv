@@ -1,4 +1,5 @@
 import sys
+from .utils import print_success, print_error, print_info
 
 class CoreError(Exception):
     pass
@@ -16,6 +17,8 @@ adbrv --frida kill [--device <serial>]  Kill frida-server
 adbrv --status [--device <serial>]     Show device status
 adbrv --resign --apk <file.apk> [options]  Resign APK using integrated uber-apk-signer
 adbrv --checksym <path/to/base>  Check for internal symbols in .so files
+adbrv --findso                           Find .so files in APK files in current directory
+adbrv --libsec                           Check security features of .so files (PIE, Stack Canary, Debug symbols)
 adbrv --update                         Update this script
 adbrv --version                        Show version
 adbrv -h | --help                      Show help
@@ -33,7 +36,9 @@ Examples:
   adbrv --frida on [--device <serial>]    Start frida-server on the device
   adbrv --frida kill [--device <serial>]  Kill all running frida-server processes on the device. If multiple processes are found, you will be asked to confirm before killing all. After stopping, the status will be checked and displayed.
   adbrv --resign --apk my.apk             Resign APK file (all uber-apk-signer options supported)
-  adbrv --checksym base                   Check for internal symbols in .so files in the specified directory (point to the folder containing full source code, e.g. 'base' from apktool d base.apk)
+  adbrv --checksym base                   Check for internal symbols in .so files in the specified directory (point to the folder containing full source code, e.g. 'base' from apktool d base.apk)                     
+  adbrv --findso                          Find .so files in APK files in current directory
+  adbrv --libsec                          Check security features of .so files (PIE, Stack Canary, Debug symbols)
   adbrv --status                          Show device status
   adbrv --update                          Update this script
   adbrv --version                         Show version
@@ -117,7 +122,7 @@ def parse_args(argv):
 
 def update_script():
     import os, shutil, re, urllib.request, subprocess, sys
-    print("[+] Checking for updates from GitHub...")
+    print_info("Checking for updates from GitHub...")
     try:
         # Get current version
         from adbrv import __version__
@@ -129,8 +134,8 @@ def update_script():
         
         # If running from installed package, auto update via pip
         if "site-packages" in script_path:
-            print("[i] You are using the installed package version.")
-            print("[+] Auto-updating via pip...")
+            print_info("You are using the installed package version.")
+            print_info("Auto-updating via pip...")
             
             try:
                 # Run pip install --upgrade from GitHub
@@ -140,16 +145,16 @@ def update_script():
                     text=True,
                     check=True
                 )
-                print("[+] Update successful!")
-                print("[i] Please re-run the script to use the new version.")
+                print_success("Update successful!")
+                print_info("Please re-run the script to use the new version.")
                 return
             except subprocess.CalledProcessError as e:
-                print(f"[-] Update failed: {e}")
-                print("[i] You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
+                print_error(f"Update failed: {e}")
+                print_info("You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
                 return
             except Exception as e:
-                print(f"[-] Unexpected error during update: {e}")
-                print("[i] You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
+                print_error(f"Unexpected error during update: {e}")
+                print_info("You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
                 return
         
         # If running from source, update from GitHub
@@ -164,7 +169,7 @@ def update_script():
         if new_version is None:
             raise CoreError("Could not determine version of the downloaded script.")
         if new_version == current_version:
-            print(f"[i] You are already using the latest version ({current_version}).")
+            print_info(f"You are already using the latest version ({current_version}).")
             return
         
         # Backup current script
@@ -177,7 +182,7 @@ def update_script():
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(new_code)
         
-        print(f"[+] Update successful! (Backup saved as {backup_path})")
-        print("[!] Please re-run the script.")
+        print_success(f"Update successful! (Backup saved as {backup_path})")
+        print_error("Please re-run the script.")
     except Exception as e:
         raise CoreError(f"Update failed: {e}")
