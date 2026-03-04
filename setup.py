@@ -2,10 +2,9 @@ from setuptools import setup
 
 setup(
     name='adbrv',
-    version='1.5.0',
+    version='2.0.0',
     description='ADB reverse port forwarding, HTTP proxy configuration, APK analysis tools, and security assessment for Android devices.',
     author='kx4n9',
-    author_email='dthkhang@gmail.com',
     url='https://github.com/dthkhang/adbrv',
     packages=['adbrv_module'],
     py_modules=['adbrv'],
@@ -17,6 +16,10 @@ setup(
             'adbrv=adbrv:main',
         ],
     },
+    install_requires=[
+        'typer',
+        'rich',
+    ],
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',

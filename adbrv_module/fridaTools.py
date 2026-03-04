@@ -64,31 +64,31 @@ def start_frida_server(serial=None):
             return True
 
         # Start frida-server
-        print_info("Start Frida Server...")
-        print_info("Please wait...")
+        from rich.console import Console
+        console = Console()
+        with console.status(f"[bold green]Starting {fsName} in background...[/bold green]", spinner="bouncingBar"):
+            # Set executable permission
+            subprocess.run(adb_base + ["shell", "chmod", "+x", fsName], check=True)
 
-        # Set executable permission
-        subprocess.run(adb_base + ["shell", "chmod", "+x", fsName], check=True)
+            # Start with root privileges (run in background)
+            try:
+                subprocess.run(adb_base + ["shell", "su", "-c", f"{fsName} &"], check=True, timeout=10)
+            except subprocess.TimeoutExpired:
+                # Timeout is expected when starting background process
+                pass
 
-        # Start with root privileges (run in background)
-        try:
-            subprocess.run(adb_base + ["shell", "su", "-c", f"{fsName} &"], check=True, timeout=10)
-        except subprocess.TimeoutExpired:
-            # Timeout is expected when starting background process
-            pass
+            time.sleep(2)
 
-        time.sleep(2)
-
-        # Verify start
-        verify_result = subprocess.run(adb_base + ["shell", "ps", "|", "grep", "frida-server"], 
-                                     capture_output=True, text=True)
-        
-        if "frida-server" in verify_result.stdout:
-            print_success("Frida Server Start Success!!")
-            return True
-        else:
-            print_error("Frida Server Start Failed!! Check & Try Again")
-            return False
+            # Verify start
+            verify_result = subprocess.run(adb_base + ["shell", "ps", "|", "grep", "frida-server"], 
+                                         capture_output=True, text=True)
+            
+            if "frida-server" in verify_result.stdout:
+                console.print(f"[bold green]✔ Frida Server Start Success!! ({fsName})[/bold green]")
+                return True
+            else:
+                console.print("[bold red]✖ Frida Server Start Failed!! Check & Try Again[/bold red]")
+                return False
             
     except subprocess.CalledProcessError as e:
         print_error(f"Error: {e}")

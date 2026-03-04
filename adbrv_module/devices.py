@@ -49,6 +49,11 @@ def print_all_status(serial=None):
         print(f"  Reverse: {reverse}")
 
 def check_devices_info(serial=None):
+    from rich.console import Console
+    from rich.table import Table
+    from rich import box
+    console = Console()
+    
     import re
     def adb_shell(cmd, serial=None):
         adb_base = ["adb"]
@@ -65,24 +70,46 @@ def check_devices_info(serial=None):
     else:
         devices = get_connected_devices()
     if not devices:
-        print("[!] No devices connected.")
+        console.print("[bold red][!] No devices connected.[/bold red]")
         return
-    for serial in devices:
-        model = adb_shell(["getprop", "ro.product.model"], serial) or "?"
-        android = adb_shell(["getprop", "ro.build.version.release"], serial) or "?"
-        su_check = adb_shell(["which", "su"], serial)
+        
+    table = Table(title="Connected Devices Status", box=box.ROUNDED)
+    table.add_column("Device Serial", style="cyan", no_wrap=True)
+    table.add_column("Model", style="magenta")
+    table.add_column("Android", justify="center")
+    table.add_column("Root Access", justify="center")
+    table.add_column("Frida", justify="center")
+    table.add_column("Proxy", style="yellow")
+    table.add_column("Reverse", style="green")
+
+    for s in devices:
+        model = adb_shell(["getprop", "ro.product.model"], s) or "?"
+        android = adb_shell(["getprop", "ro.build.version.release"], s) or "?"
+        su_check = adb_shell(["which", "su"], s)
         root = "Yes" if su_check and su_check != '' else "No"
+        root_style = "[bold green]Yes[/bold green]" if root == "Yes" else "[bold red]No[/bold red]"
+        
         from .fridaTools import get_frida_status
-        frida_status = get_frida_status(serial)
-        proxy = get_proxy_status(serial)
-        reverse = get_reverse_ports(serial)
-        print(f"Device {serial}")
-        print(f"├── Model       : {model}")
-        print(f"├── Android     : {android}")
-        print(f"├── Root Access : {root}")
-        print(f"├── Frida       : {frida_status}")
-        print(f"├── Proxy       : {proxy}")
-        print(f"└── Reverse     : {reverse}")
+        frida_status = get_frida_status(s)
+        if "On" in frida_status:
+            frida_style = f"[bold green]{frida_status}[/bold green]"
+        else:
+            frida_style = f"[dim]{frida_status}[/dim]"
+            
+        proxy = get_proxy_status(s)
+        reverse = get_reverse_ports(s)
+        
+        table.add_row(
+            s,
+            model,
+            android,
+            root_style,
+            frida_style,
+            proxy,
+            reverse
+        )
+        
+    console.print(table)
 
 def adb_shell(cmd, serial=None, check=True, input_text=None):
     adb_base = ["adb"]
