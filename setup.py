@@ -17,7 +17,7 @@ setup(
         ],
     },
     install_requires=[
-        'typer',
+        'typer>=0.15.0',
         'rich',
     ],
     classifiers=[
