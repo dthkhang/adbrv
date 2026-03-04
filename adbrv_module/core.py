@@ -1,188 +1,35 @@
 import sys
-from .utils import print_success, print_error, print_info
+import subprocess
+from rich.console import Console
+
+console = Console()
 
 class CoreError(Exception):
     pass
 
-def print_help():
-        print("""
-Usage:
-
-Command                                Description
----------------------------------------------------------------
-adbrv --set <local_port> <device_port>  Set up reverse proxy
-adbrv --unset [--device <serial>]      Remove proxy/reverse
-adbrv --frida on [--device <serial>]   Start frida-server
-adbrv --frida kill [--device <serial>]  Kill frida-server
-adbrv --status [--device <serial>]     Show device status
-adbrv --resign --apk <file.apk> [options]  Resign APK using integrated uber-apk-signer
-adbrv --checksym <path/to/base>  Check for internal symbols in .so files
-adbrv --findso                           Find .so files in APK files in current directory
-adbrv --libsec                           Check security features of .so files (PIE, Stack Canary, Debug symbols)
-adbrv --update                         Update this script
-adbrv --version                        Show version
-adbrv -h | --help                      Show help
-
-Examples:
-
-  Command                                 Description
-  ---------------------------------------------------------------
-  adbrv --set 8083 8083                   Set up reverse proxy
-  adbrv --set 8083 8083 --device <serial> Set up reverse proxy for specific device
-  adbrv --unset                           Remove proxy/reverse
-  adbrv --unset --device <serial>         Remove proxy/reverse for specific device
-  adbrv --status --device <serial>        Show status for specific device
-  adbrv --frida kill                      Kill frida-server
-  adbrv --frida on [--device <serial>]    Start frida-server on the device
-  adbrv --frida kill [--device <serial>]  Kill all running frida-server processes on the device. If multiple processes are found, you will be asked to confirm before killing all. After stopping, the status will be checked and displayed.
-  adbrv --resign --apk my.apk             Resign APK file (all uber-apk-signer options supported)
-  adbrv --checksym base                   Check for internal symbols in .so files in the specified directory (point to the folder containing full source code, e.g. 'base' from apktool d base.apk)                     
-  adbrv --findso                          Find .so files in APK files in current directory
-  adbrv --libsec                          Check security features of .so files (PIE, Stack Canary, Debug symbols)
-  adbrv --status                          Show device status
-  adbrv --update                          Update this script
-  adbrv --version                         Show version
-  adbrv --help / adbrv -h                 Show help
-
-Notes:
-- If no device is specified and multiple devices are connected, you will be prompted to specify a device.
-- When stopping frida-server, you must confirm (y/n) if multiple processes are found.
-- For APK resigning, Java is required. All original uber-apk-signer flags are supported.
-""")
-
-def is_valid_port(port):
-    try:
-        port = int(port)
-        return 1 <= port <= 65535
-    except ValueError:
-        return False
-
-def parse_args(argv):
-    # Returns: (cmd, local_port, device_port, serial)
-    # cmd: 'set', 'unset', 'status', 'help', 'update', 'version', 'frida_kill'
-    if len(argv) == 2 and argv[1] in ['-h', '--help']:
-        return ('help', None, None, None)
-    if len(argv) >= 2 and argv[1] == '--status':
-        serial = None
-        if '--device' in argv:
-            idx = argv.index('--device')
-            if idx+1 < len(argv):
-                serial = argv[idx+1]
-            else:
-                raise CoreError("Missing serial after --device.")
-        return ('status', None, None, serial)
-    if len(argv) >= 2 and argv[1] == '--unset':
-        serial = None
-        if '--device' in argv:
-            idx = argv.index('--device')
-            if idx+1 < len(argv):
-                serial = argv[idx+1]
-            else:
-                raise CoreError("Missing serial after --device.")
-        return ('unset', None, None, serial)
-    if len(argv) >= 2 and argv[1] == '--update':
-        return ('update', None, None, None)
-    if len(argv) >= 2 and argv[1] == '--version':
-        return ('version', None, None, None)
-    if len(argv) >= 2 and argv[1] == '--frida':
-        if len(argv) < 3:
-            return ('help', None, None, None)
-        if argv[2] == 'kill':
-            serial = None
-            if '--device' in argv:
-                idx = argv.index('--device')
-                if idx+1 < len(argv):
-                    serial = argv[idx+1]
-                else:
-                    raise CoreError("Missing serial after --device.")
-            return ('frida_kill', None, None, serial)
-        elif argv[2] == 'on':
-            serial = None
-            if '--device' in argv:
-                idx = argv.index('--device')
-                if idx+1 < len(argv):
-                    serial = argv[idx+1]
-                else:
-                    raise CoreError("Missing serial after --device.")
-            return ('frida_start', None, None, serial)
-        else:
-            return ('help', None, None, None)
-    if len(argv) >= 4 and argv[1] == '--set':
-        local_port = argv[2]
-        device_port = argv[3]
-        serial = None
-        if '--device' in argv:
-            idx = argv.index('--device')
-            if idx+1 < len(argv):
-                serial = argv[idx+1]
-            else:
-                raise CoreError("Missing serial after --device.")
-        return ('set', local_port, device_port, serial)
-    return (None, None, None, None)
-
 def update_script():
-    import os, shutil, re, urllib.request, subprocess, sys
-    print_info("Checking for updates from GitHub...")
+    console.print("[bold cyan][*] Checking for updates from GitHub...[/bold cyan]")
     try:
-        # Get current version
-        from adbrv import __version__
-        current_version = __version__
+        args = [
+            sys.executable, "-m", "pip", "install", "--upgrade", 
+            "--break-system-packages", "git+https://github.com/dthkhang/adbrv.git"
+        ]
         
-        # Check if we're running from installed package
-        import adbrv
-        script_path = os.path.realpath(adbrv.__file__)
-        
-        # If running from installed package, auto update via pip
-        if "site-packages" in script_path:
-            print_info("You are using the installed package version.")
-            print_info("Auto-updating via pip...")
-            
-            try:
-                # Run pip install --upgrade from GitHub
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade", "git+https://github.com/dthkhang/adbrv.git"],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                print_success("Update successful!")
-                print_info("Please re-run the script to use the new version.")
-                return
-            except subprocess.CalledProcessError as e:
-                print_error(f"Update failed: {e}")
-                print_info("You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
-                return
-            except Exception as e:
-                print_error(f"Unexpected error during update: {e}")
-                print_info("You can try manually: pip install --upgrade git+https://github.com/dthkhang/adbrv.git")
-                return
-        
-        # If running from source, update from GitHub
-        GITHUB_RAW_URL = "https://raw.githubusercontent.com/dthkhang/adbrv/main/adbrv.py"
-        with urllib.request.urlopen(GITHUB_RAW_URL) as response:
-            new_code = response.read().decode('utf-8')
-        
-        # Extract version from new_code
-        m = re.search(r'__version__\s*=\s*"([^"]+)"', new_code)
-        new_version = m.group(1) if m else None
-        
-        if new_version is None:
-            raise CoreError("Could not determine version of the downloaded script.")
-        if new_version == current_version:
-            print_info(f"You are already using the latest version ({current_version}).")
-            return
-        
-        # Backup current script
-        backup_dir = os.path.join(os.path.dirname(script_path), "backup")
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_path = os.path.join(backup_dir, f"adbrv.py.bak.{current_version}")
-        shutil.copy2(script_path, backup_path)
-        
-        # Write new code
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(new_code)
-        
-        print_success(f"Update successful! (Backup saved as {backup_path})")
-        print_error("Please re-run the script.")
+        with console.status("[bold yellow]Auto-updating via pip (this may take a few seconds)...[/bold yellow]", spinner="dots"):
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True
+            )
+
+        if result.returncode == 0:
+            console.print("[bold green][:heavy_check_mark:] Update successful! The tool is now up-to-date.[/bold green]")
+            console.print("[bold magenta][!] Please re-run the script to use the new version.[/bold magenta]")
+        else:
+            console.print(f"[bold red][:x:] Update failed. Exit code: {result.returncode}[/bold red]")
+            if result.stderr:
+                console.print(f"[red]{result.stderr}[/red]")
+            console.print("[bold yellow]You can try manually:[/bold yellow] pip install --upgrade --break-system-packages git+https://github.com/dthkhang/adbrv.git")
+
     except Exception as e:
-        raise CoreError(f"Update failed: {e}")
+        raise CoreError(f"Unexpected error during update: {e}")

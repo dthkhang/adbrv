@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-03-04
+
+### Added
+- **Modern CLI Interface**: Fully migrated to `typer` framework for robust command-line parsing, argument validation, and out-of-the-box generated help documentation.
+- **Beautiful Console Output**: Integrated `rich` library for aesthetic command-line output, including dynamic Spinners for loading tasks, aligned Tables for device status and examples, and fully colored/formatted error and success messages.
+- **Smart System Fallback**: The proxy `set` and `unset` commands now leverage `su` to modify global settings directly (falling back to standard shell if `su` fails), avoiding arbitrary `Security exception: Permission denial` on devices with strict ROMs like Xiaomi.
+- **Robust Auto-Update Mechanism**: The `update` command now intelligently handles modular Python packages by running `pip install --upgrade` against the GitHub repository rather than downloading arbitrary raw python text.
+
+### Changed
+- Replaced the legacy double-dash (`--set`, `--status`, `--frida on`) monolithic command argument parser with a robust set of modular Typer sub-commands (e.g. `adbrv set`, `adbrv status`, `adbrv frida-start`).
+
 ## [1.5.0] - 2025-01-27
 
 ### Added
