@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-03-05
+
+### Added
+- **Strict REPL Grammar & Syntax Validation**: The interactive workspace now prevents invalid characters mid-command by actively validating keystrokes against building syntax rules. Typing malformed input (like `set 8080 x`) is completely blocked, ensuring foolproof execution.
+- **Context-Aware Autocomplete Paths**: The workspace autocomplete now anticipates input states, showing contextual hints like `-d` right after finishing `unset ` or `frida-kill `, and `"enter your port xxxx xxxx"` after `set `, giving quick and seamless visual guidance.
+
 ## [2.2.0] - 2026-03-05
 
 ### Added

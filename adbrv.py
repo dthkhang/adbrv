@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 import sys
 import typer
 from typing import Optional, List
@@ -126,13 +126,154 @@ def main_callback(
         import click
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.completion import Completer, Completion
+        from prompt_toolkit.key_binding import KeyBindings
+        
+        allowed_commands_list = [
+            "set", "unset", "status", "frida-start", "frida-kill", 
+            "help", "exit", "quit", "--help", "-h"
+        ]
+
+        def is_valid_sentence_prefix(text):
+            text_lstrip = text.lstrip()
+            if not text_lstrip:
+                return True
+                
+            parts = text_lstrip.split()
+            ends_with_space = text_lstrip.endswith(" ") or text_lstrip.endswith("\t")
+            
+            cmd = parts[0].lower()
+            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "help", "exit", "quit", "--help", "-h"]
+            matching_cmds = [c for c in valid_cmds if c.startswith(cmd)]
+            
+            if not matching_cmds:
+                return False
+                
+            if cmd not in valid_cmds:
+                if ends_with_space or len(parts) > 1:
+                    return False
+                return True
+
+            expected_pos = 2 if cmd == "set" else 0
+            pos_count = 0
+            has_flag = False
+            flag_val_count = 0
+            
+            i = 1
+            while i < len(parts):
+                part = parts[i]
+                is_last = (i == len(parts) - 1)
+                
+                if part.startswith("-"):
+                    if part in ["-h", "--help"]:
+                        return True
+                        
+                    if "--device".startswith(part) or "-d".startswith(part):
+                        if has_flag:
+                            return False
+                        if part in ["-d", "--device"]:
+                            has_flag = True
+                        elif is_last and ends_with_space:
+                            return False
+                    else:
+                        return False
+                else:
+                    if has_flag and flag_val_count == 0:
+                        flag_val_count += 1
+                    else:
+                        if pos_count >= expected_pos:
+                            return False
+                        if not part.isdigit():
+                            return False
+                        pos_count += 1
+                        
+                i += 1
+                
+            if ends_with_space:
+                if pos_count == expected_pos and has_flag and flag_val_count == 1:
+                    return False
+                    
+            if cmd in ["help", "exit", "quit", "--help", "-h"]:
+                if ends_with_space or len(parts) > 1:
+                    return False
+                    
+            return True
+
+        class CommandCompleter(Completer):
+            def get_completions(self, document, complete_event):
+                text = document.text_before_cursor
+                parts = text.split()
+                ends_with_space = text.endswith(" ") or text.endswith("\t")
+                
+                if not text.lstrip():
+                    for cmd in allowed_commands_list:
+                        yield Completion(cmd, start_position=0)
+                    return
+                
+                word_before_cursor = document.get_word_before_cursor(WORD=True)
+
+                if len(parts) == 1 and not ends_with_space:
+                    word_lower = parts[0].lower()
+                    for cmd in allowed_commands_list:
+                        if cmd.startswith(word_lower):
+                            yield Completion(cmd, start_position=-len(word_before_cursor))
+                    return
+
+                cmd = parts[0].lower()
+                
+                if cmd in ["unset", "status", "frida-start", "frida-kill"]:
+                    if len(parts) == 1 and ends_with_space:
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
+                    elif len(parts) == 2 and not ends_with_space and parts[1].startswith("-"):
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
+                            
+                elif cmd == "set":
+                    if len(parts) == 1 and ends_with_space:
+                        if "enter your port".startswith(word_before_cursor.lower()):
+                            yield Completion("enter your port", start_position=-len(word_before_cursor))
+                    elif len(parts) == 3 and ends_with_space:
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
+                    elif len(parts) == 4 and not ends_with_space and parts[3].startswith("-"):
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
+
+        command_completer = CommandCompleter()
+
+        kb = KeyBindings()
+
+        @kb.add('<any>')
+        def _(event):
+            char = event.data
+            buffer = event.app.current_buffer
+            new_text = buffer.text[:buffer.cursor_position] + char + buffer.text[buffer.cursor_position:]
+            
+            if is_valid_sentence_prefix(new_text):
+                buffer.insert_text(char)
+                if buffer.text:
+                    buffer.start_completion(select_first=False)
+
+        @kb.add('escape', eager=True)
+        def _(event):
+            event.app.current_buffer.cancel_completion()
+
+        @kb.add('backspace')
+        def _(event):
+            event.app.current_buffer.delete_before_cursor(count=1)
+            if event.app.current_buffer.text:
+                event.app.current_buffer.start_completion(select_first=False)
+
+
         
         console.print("[bold cyan]Welcome to adbrv Workspace. Type 'help' for available commands, 'exit' to quit.[/bold cyan]")
         session = PromptSession(history=InMemoryHistory())
-        
+    
         while True:
             try:
-                cmd = session.prompt("adbrv> ")
+                # eager=True in the KeyBinding bypasses the delay
+                cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=True, key_bindings=kb)
                 if not cmd.strip():
                     continue
                 if cmd.strip().lower() in ["exit", "quit"]:
@@ -185,7 +326,7 @@ def main_callback(
                     
                 allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "--help", "-h"}
                 if args[0] not in allowed_commands:
-                    console.print(f"[bold yellow][!] Command '{args[0]}' is not supported inside Workspace.[/bold yellow]")
+                    console.print(f"[bold red][!] Command '{args[0]}' is not supported inside Workspace.[/bold red]")
                     console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
                     continue
                     
