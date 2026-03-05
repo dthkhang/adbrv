@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 import sys
 import typer
 from typing import Optional, List
@@ -134,20 +134,9 @@ def cmd_set(
             console.print("[bold red][!] Invalid port. Port must be an integer between 1 and 65535.[/bold red]")
             raise typer.Exit(1)
             
-        devices = get_connected_devices()
-        if not devices:
-            console.print("[bold red][!] No devices connected.[/bold red]")
-            raise typer.Exit(1)
-        if device:
-            if device not in devices:
-                console.print(f"[bold red][!] Device {device} not found.[/bold red]")
-                raise typer.Exit(1)
-            set_proxy(local_port, device_port, device)
-        else:
-            if len(devices) > 1:
-                console.print("[bold red][!] Multiple devices connected. Please specify --device <serial>.[/bold red]")
-                raise typer.Exit(1)
-            set_proxy(local_port, device_port, devices[0])
+        from adbrv_module.devices import select_device
+        target_device = select_device(device)
+        set_proxy(local_port, device_port, target_device)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)
@@ -162,11 +151,10 @@ def cmd_unset(
         if not devices:
             console.print("[bold red][!] No devices connected.[/bold red]")
             raise typer.Exit(1)
+        from adbrv_module.devices import select_device
         if device:
-            if device not in devices:
-                console.print(f"[bold red][!] Device {device} not found.[/bold red]")
-                raise typer.Exit(1)
-            unset_proxy_and_reverse(device)
+            target_device = select_device(device)
+            unset_proxy_and_reverse(target_device)
         else:
             for d in devices:
                 unset_proxy_and_reverse(d)
@@ -181,11 +169,10 @@ def cmd_status(
     """Display proxy, reverse port, and frida-server status."""
     try:
         devices = get_connected_devices()
+        from adbrv_module.devices import select_device
         if device:
-            if device not in devices:
-                console.print(f"[bold red][!] Device {device} not found.[/bold red]")
-                raise typer.Exit(1)
-            check_devices_info(device)
+            target_device = select_device(device)
+            check_devices_info(target_device)
         else:
             check_devices_info()
     except (AdbError, ProxyError, CoreError) as e:

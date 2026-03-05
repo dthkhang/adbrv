@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-03-05
+
+### Added
+- **Interactive TUI Menus**: Integrated `questionary` for arrow-key navigable console menus. Hand-typing inputs or blindly copying device IDs is a thing of the past!
+  - `adbrv checksym` auto-displays a menu to select ABI folders when multiple architectures are found.
+  - `adbrv frida-start` lets you pick right from a list if multiple `frida-server`/`florida-server` binaries reside in `/data/local/tmp`.
+  - **Multi-device auto-prompt**: If multiple devices are plugged in (for any command like `set`, `status`, `frida-start`, `unset`), adbrv intercepts and shows a quick interactive menu to choose which device you want to target, removing the strict need for `--device ...` args.
+- **Florida Server Support**: Fully extended the Frida management suite (`frida-start` / `frida-kill` / `status`) to dynamically recognize and manage `florida-server` binaries alongside `frida-server` automatically.
+
 ## [2.0.0] - 2026-03-04
 
 ### Added

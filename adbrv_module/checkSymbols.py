@@ -36,16 +36,16 @@ def check_symbols(base_folder):
         chosen_abi = abi_folders[0]
         console.print(f"[cyan][*] Only one ABI folder found: {chosen_abi}[/cyan]")
     else:
-        console.print("[cyan][*] Found ABI folders:[/cyan]")
-        for idx, folder in enumerate(abi_folders):
-            console.print(f"  [{idx+1}] {folder}")
-        while True:
-            choice = input(f"Select ABI folder to scan [1-{len(abi_folders)}]: ").strip()
-            if choice.isdigit() and 1 <= int(choice) <= len(abi_folders):
-                chosen_abi = abi_folders[int(choice)-1]
-                break
-            console.print("[bold yellow]Invalid selection. Please enter a valid number.[/bold yellow]")
-            
+        import questionary
+        chosen_abi = questionary.select(
+            "Select ABI folder to scan:",
+            choices=abi_folders,
+            instruction="(Use arrow keys)"
+        ).ask()
+        
+        if not chosen_abi:
+            console.print("[bold yellow]ABI selection cancelled.[/bold yellow]")
+            sys.exit(0)
     scan_dir = os.path.join(lib_dir, chosen_abi)
     if not os.path.isdir(scan_dir):
         console.print(f"[bold red][!] Selected ABI folder not found: {scan_dir}[/bold red]")

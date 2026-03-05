@@ -12,6 +12,33 @@ def get_connected_devices():
     except Exception as e:
         raise AdbError(f"Error running adb: {e}")
 
+def select_device(serial_arg=None):
+    devices = get_connected_devices()
+    if not devices:
+        raise AdbError("No devices connected.")
+    
+    if serial_arg:
+        if serial_arg not in devices:
+            raise AdbError(f"Device {serial_arg} not found.")
+        return serial_arg
+        
+    if len(devices) == 1:
+        return devices[0]
+        
+    import questionary
+    from rich.console import Console
+    Console().print("[bold yellow][!] Multiple devices connected.[/bold yellow]")
+    selected = questionary.select(
+        "Select a device to use:",
+        choices=devices,
+        instruction="(Use arrow keys)"
+    ).ask()
+    
+    if not selected:
+        raise AdbError("No device selected.")
+        
+    return selected
+
 def get_proxy_status(serial=None):
     adb_base = ["adb"]
     if serial:

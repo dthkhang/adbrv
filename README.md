@@ -26,12 +26,12 @@
   - `--status` displays all connected devices, active proxy settings, and reverse port mappings in a clear tree format.
   - Enhanced Frida status shows user (root/shell) and PID information.
 
-- 🧩 **Frida management**
-  - `--frida-start` to start frida-server automatically with root privileges.
-  - `--frida-kill` to kill all running frida-server processes (with confirmation if multiple processes).
-  - Status output shows Frida server user (root/shell) and PID if running.
-  - **Important:** The frida-server binary in `/data/local/tmp` must be named starting with `frida-server` (e.g. `frida-server`, `frida-server-16.6.3`). Otherwise, adbrv cannot detect or manage it.
-  - **Recommended:** Use frida-server version 16.6.3 for best stability.
+- 🧩 **Frida & Florida management**
+  - `frida-start` to start frida/florida-server automatically with root privileges. Shows an interactive menu if multiple server versions exist!
+  - `frida-kill` to kill all running frida/florida-server processes (with confirmation if multiple processes).
+  - Status output shows Frida/Florida server user (root/shell) and PID if running.
+  - **Important:** The server binary in `/data/local/tmp` must contain `frida-server` or `florida-server` (e.g. `florida-server-16.6.3-android-arm64`). Otherwise, adbrv cannot detect or manage it.
+  - **Recommended:** Use server version 16.6.3 for best stability.
 
 - 🗝️ **APK resigning (uber-apk-signer integration)**
   - `--resign` flag allows you to resign APK files directly from adbrv using the integrated [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer).
@@ -340,8 +340,8 @@ adbrv resign --apk my.apk --ks my.keystore --ksAlias alias --ksPass pass
 ---
 ## 📝 Notes
 - If no device is specified and multiple devices are connected, you will be prompted to specify a device.
-- **Frida management is fully automated:** Both start and kill commands are available.
-- **Recommended:** Use frida-server version 16.6.3 for best stability.
+- **Frida/Florida management is fully automated & interactive:** Both start and kill commands are available, and you can pick versions from an interactive menu.
+- **Recommended:** Use frida/florida-server version 16.6.3 for best stability.
 - **Security analysis:** The `libsec` feature follows MASTG (Mobile Application Security Testing Guide) standards for comprehensive security assessment.
 - **APK analysis workflow:** Use `findso` to identify APKs with native code, then `libsec` for security analysis, and `checksym` for detailed symbol inspection.
 
