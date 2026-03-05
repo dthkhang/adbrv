@@ -146,7 +146,7 @@ def frida_kill(serial=None):
             
     print_info("Checking frida-server status...")
     from .devices import check_devices_info
-    check_devices_info(serial)
+    check_devices_info(serial, show_title=False)
 
 def get_frida_status(serial):
     """Get frida/florida server status for a device"""

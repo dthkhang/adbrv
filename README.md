@@ -111,6 +111,17 @@ If no device appears, try:
 
 ## 🚀 Usage
 
+### 💻 Interactive Workspace (REPL)
+If you run `adbrv` without any arguments, it will automatically drop you into an interactive workspace mode. This allows you to persistently run commands like `status`, `frida-start`, or `set` without retyping the binary prefix. 
+```bash
+$ adbrv
+Welcome to adbrv Workspace. Type 'help' for available commands, 'exit' to quit.
+adbrv> status
+adbrv> frida-start
+adbrv> exit
+```
+
+### 🏃 One-off Commands
 adbrv status [--device <serial>]
 adbrv frida-start [--device <serial>]
 adbrv frida-kill [--device <serial>]

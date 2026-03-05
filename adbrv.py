@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 import sys
 import typer
 from typing import Optional, List
@@ -107,8 +107,9 @@ def version_callback(value: bool):
         console.print(f"[bold green]adbrv version[/bold green] [cyan]{__version__}[/cyan]")
         raise typer.Exit()
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main_callback(
+    ctx: typer.Context,
     version: Annotated[
         Optional[bool],
         typer.Option(
@@ -120,7 +121,87 @@ def main_callback(
         ),
     ] = None,
 ):
-    pass
+    if ctx.invoked_subcommand is None:
+        import shlex
+        import click
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.history import InMemoryHistory
+        
+        console.print("[bold cyan]Welcome to adbrv Workspace. Type 'help' for available commands, 'exit' to quit.[/bold cyan]")
+        session = PromptSession(history=InMemoryHistory())
+        
+        while True:
+            try:
+                cmd = session.prompt("adbrv> ")
+                if not cmd.strip():
+                    continue
+                if cmd.strip().lower() in ["exit", "quit"]:
+                    break
+                if cmd.strip().lower() in ["help", "-h", "--help"]:
+                    from rich.table import Table
+                    from rich.panel import Panel
+                    from rich import box
+                    help_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
+                    help_tbl.add_column("Command", style="cyan", no_wrap=True)
+                    help_tbl.add_column("Description", style="default")
+                    help_tbl.add_row("set", "Set up ADB reverse proxy and HTTP proxy.")
+                    help_tbl.add_row("unset", "Remove proxy and all reverse ports on the selected (or all) devices.")
+                    help_tbl.add_row("status", "Display proxy, reverse port, and frida-server status.")
+                    help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
+                    help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                    help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
+                    
+                    panel = Panel(
+                        help_tbl,
+                        title="Commands",
+                        title_align="left",
+                        border_style="dim",
+                        box=box.ROUNDED
+                    )
+                    console.print(panel)
+                    
+                    example_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
+                    example_tbl.add_column(style="cyan", no_wrap=True)
+                    example_tbl.add_column()
+                    example_tbl.add_row("set 8080 8080", "Set up reverse proxy & HTTP proxy.")
+                    example_tbl.add_row("unset", "Remove proxy and all reverse ports.")
+                    example_tbl.add_row("status", "Show proxy, reverse port, and server status.")
+                    example_tbl.add_row("status -d 123", "Show status for specific device.")
+                    example_tbl.add_row("frida-start", "Start server (prompts auto-selection).")
+                    example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                    example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
+                    example_panel = Panel(
+                        example_tbl,
+                        title="Examples",
+                        title_align="left",
+                        border_style="dim"
+                    )
+                    console.print(example_panel)
+                    
+                    continue
+                args = shlex.split(cmd)
+                if not args:
+                    continue
+                    
+                allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "--help", "-h"}
+                if args[0] not in allowed_commands:
+                    console.print(f"[bold yellow][!] Command '{args[0]}' is not supported inside Workspace.[/bold yellow]")
+                    console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
+                    continue
+                    
+                try:
+                    ctx.command(args=args, standalone_mode=False)
+                except click.exceptions.Exit:
+                    pass
+                except SystemExit:
+                    pass
+                except Exception as e:
+                    console.print(f"[bold red]Command Error: {e}[/bold red]")
+                    
+            except KeyboardInterrupt:
+                continue
+            except EOFError:
+                break
 
 @app.command(name="set")
 def cmd_set(
@@ -134,9 +215,10 @@ def cmd_set(
             console.print("[bold red][!] Invalid port. Port must be an integer between 1 and 65535.[/bold red]")
             raise typer.Exit(1)
             
-        from adbrv_module.devices import select_device
+        from adbrv_module.devices import select_device, check_devices_info
         target_device = select_device(device)
         set_proxy(local_port, device_port, target_device)
+        check_devices_info(target_device, show_title=False)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)
@@ -151,13 +233,15 @@ def cmd_unset(
         if not devices:
             console.print("[bold red][!] No devices connected.[/bold red]")
             raise typer.Exit(1)
-        from adbrv_module.devices import select_device
+        from adbrv_module.devices import select_device, check_devices_info
         if device:
             target_device = select_device(device)
             unset_proxy_and_reverse(target_device)
+            check_devices_info(target_device, show_title=False)
         else:
             for d in devices:
                 unset_proxy_and_reverse(d)
+            check_devices_info(show_title=False)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)
@@ -186,6 +270,8 @@ def cmd_frida_start(
     """Start frida-server on the device with root privileges."""
     try:
         start_frida_server(device)
+        from adbrv_module.devices import check_devices_info
+        check_devices_info(show_title=False)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)

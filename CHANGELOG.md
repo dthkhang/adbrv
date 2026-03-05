@@ -2,8 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.1.0] - 2026-03-05
+## [2.2.0] - 2026-03-05
 
+### Added
+- **Default Interactive Workspace (REPL)**: Inspired by tools like Metasploit, running `adbrv` directly with no arguments now automatically drops you into a persistent `adbrv>` interactive session. Inside this shell, you can natively re-run commands like `status` or `frida-start` without exiting back to your OS console!
+- **Workspace Context Awareness**: The REPL workspace is now restricted to only network and Frida-related commands (`set`, `unset`, `status`, `frida-start`, `frida-kill`), preventing irrelevant commands from cluttering the session.
+- **Smart Status Output**: Commands like `set`, `unset`, and `frida-start` now automatically display device status immediately without requiring an additional `status` command, and cleanly strip the table title for a more streamlined readout.
+- **Tailored Help Menu**: Entering `help` inside the workspace now beautifully renders a custom UI table that specifically lists only the permitted commands, complete with examples formatted precisely like the Typer CLI outside the workspace.
+
+## [2.1.0] - 2026-03-05
 ### Added
 - **Interactive TUI Menus**: Integrated `questionary` for arrow-key navigable console menus. Hand-typing inputs or blindly copying device IDs is a thing of the past!
   - `adbrv checksym` auto-displays a menu to select ABI folders when multiple architectures are found.

@@ -75,7 +75,7 @@ def print_all_status(serial=None):
         print(f"  Proxy:   {proxy}")
         print(f"  Reverse: {reverse}")
 
-def check_devices_info(serial=None):
+def check_devices_info(serial=None, show_title=True):
     from rich.console import Console
     from rich.table import Table
     from rich import box
@@ -100,7 +100,8 @@ def check_devices_info(serial=None):
         console.print("[bold red][!] No devices connected.[/bold red]")
         return
         
-    table = Table(title="Connected Devices Status", box=box.ROUNDED)
+    title_text = "Connected Devices Status" if show_title else None
+    table = Table(title=title_text, box=box.ROUNDED)
     table.add_column("Device Serial", style="cyan", no_wrap=True)
     table.add_column("Model", style="magenta")
     table.add_column("Android", justify="center")
