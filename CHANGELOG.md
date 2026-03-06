@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.2] - 2026-03-06
+
+### Added
+- **Accent Folding for Smart Autocompletion**: The `pull` command's interactive App Name lookup now supports typeless diacritics (e.g., typing "Tai" auto-matches "Tải", "Nhac" auto-matches "Nhạc"). 
+  - Resolves searching friction for localized applications (like Vietnamese app names) by normalizing UTF-8 Unicode to strictly ASCII NFKD format behind-the-scenes.
+  - Display UI perfectly retains the original colorful, accented characters without compromising terminal search behavior.
+
 ## [2.4.1] - 2026-03-06
 
 ### Added

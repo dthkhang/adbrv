@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 import sys
+import unicodedata
 import typer
 from typing import Optional, List
 from typing_extensions import Annotated
@@ -213,6 +214,10 @@ def main_callback(
         
         threading.Thread(target=fetch_packages_fn, daemon=True).start()
 
+        def remove_accents(input_str):
+            s1 = unicodedata.normalize('NFKD', input_str).encode('ASCII', 'ignore').decode('utf-8')
+            return s1.replace('đ', 'd').replace('Đ', 'D')
+
         class CommandCompleter(Completer):
             def get_completions(self, document, complete_event):
                 text = document.text_before_cursor
@@ -255,13 +260,13 @@ def main_callback(
                             yield Completion("-d", start_position=-len(word_before_cursor))
                             
                 elif cmd == "pull":
-                    search_word = word_before_cursor.lower()
+                    search_word = remove_accents(word_before_cursor.lower())
                     if (len(parts) == 1 and ends_with_space) or (len(parts) == 2 and not ends_with_space):
                         has_names = any(isinstance(p, dict) and p.get("name") for p in packages_cache)
                         for pkg in packages_cache:
                             if isinstance(pkg, dict):
                                 pkg_id = pkg.get("id", "").lower()
-                                pkg_name = pkg.get("name", "").lower()
+                                pkg_name = remove_accents(pkg.get("name", "").lower())
                                 if search_word in pkg_id or search_word in pkg_name:
                                     if has_names:
                                         display_text = pkg.get("name") if pkg.get("name") else " "
