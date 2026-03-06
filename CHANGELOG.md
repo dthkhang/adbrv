@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.1] - 2026-03-06
+
+### Added
+- **"Easter Egg" Pull Autocompletion**: The `pull` command in the interactive Workspace now features an intelligent, Frida-powered auto-complete engine. 
+  - Automatically hooks into `frida-ps` (if active) via a background thread to fetch Human-Readable Application Names mapped to their Package Identifiers.
+  - Contextual two-column Popup UI: Cleanly displays App Name on the left column and the Package Identifier on the right. User can search by both Native Name (e.g., "YouTube") or its ID ("com.google.android.youtube"), but the CLI ensures only the precise ID is inserted upon selection.
+  - Apps with resolved names are automatically sorted and pinned to the top of the suggestion list for a native-like user experience.
+  - Adaptive Layout System: gracefully falls back to a sleek single-column ID list without trailing whitespaces when Frida is offline or no names can be extracted, preserving terminal aesthetic integrity.
+
 ## [2.4.0] - 2026-03-06
 
 ### Added

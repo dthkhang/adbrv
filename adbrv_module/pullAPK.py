@@ -24,12 +24,35 @@ def get_installed_packages(device=None):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         if result.returncode != 0:
             return []
+            
         packages = []
         for line in result.stdout.splitlines():
             line = line.strip()
             if line.startswith("package:"):
                 pkg = line.split(":", 1)[1]
-                packages.append(pkg)
+                packages.append({"id": pkg, "name": ""})
+                
+        try:
+            frida_cmd = ["frida-ps", "-D", device, "-ia"] if device else ["frida-ps", "-Uia"]
+            frida_res = subprocess.run(frida_cmd, capture_output=True, text=True, timeout=8)
+            if frida_res.returncode == 0:
+                name_map = {}
+                for line in frida_res.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        # Sometimes PID is `-`, so we just ensure there are at least 3 parts
+                        # (PID/Dash, Name, Identifier)
+                        identifier = parts[-1]
+                        name = " ".join(parts[1:-1])
+                        name_map[identifier] = name
+                
+                for pkg_obj in packages:
+                    if pkg_obj["id"] in name_map:
+                        pkg_obj["name"] = name_map[pkg_obj["id"]]
+        except Exception:
+            pass
+            
+        packages.sort(key=lambda x: not bool(x.get("name")))
         return packages
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return []

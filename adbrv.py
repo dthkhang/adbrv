@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 import sys
 import typer
 from typing import Optional, List
@@ -255,14 +255,30 @@ def main_callback(
                             yield Completion("-d", start_position=-len(word_before_cursor))
                             
                 elif cmd == "pull":
-                    if len(parts) == 1 and ends_with_space:
+                    search_word = word_before_cursor.lower()
+                    if (len(parts) == 1 and ends_with_space) or (len(parts) == 2 and not ends_with_space):
+                        has_names = any(isinstance(p, dict) and p.get("name") for p in packages_cache)
                         for pkg in packages_cache:
-                            if pkg.startswith(word_before_cursor.lower()):
-                                yield Completion(pkg, start_position=-len(word_before_cursor))
-                    elif len(parts) == 2 and not ends_with_space:
-                        for pkg in packages_cache:
-                            if pkg.startswith(word_before_cursor.lower()):
-                                yield Completion(pkg, start_position=-len(word_before_cursor))
+                            if isinstance(pkg, dict):
+                                pkg_id = pkg.get("id", "").lower()
+                                pkg_name = pkg.get("name", "").lower()
+                                if search_word in pkg_id or search_word in pkg_name:
+                                    if has_names:
+                                        display_text = pkg.get("name") if pkg.get("name") else " "
+                                        yield Completion(
+                                            text=pkg["id"], 
+                                            start_position=-len(word_before_cursor), 
+                                            display=display_text, 
+                                            display_meta=pkg["id"]
+                                        )
+                                    else:
+                                        yield Completion(
+                                            text=pkg["id"], 
+                                            start_position=-len(word_before_cursor)
+                                        )
+                            else:
+                                if pkg.lower().startswith(search_word):
+                                    yield Completion(pkg, start_position=-len(word_before_cursor))
                     elif len(parts) == 2 and ends_with_space:
                         if "path".startswith(word_before_cursor.lower()):
                             yield Completion("path", start_position=-len(word_before_cursor))
