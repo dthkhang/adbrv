@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.0] - 2026-03-06
+
+### Added
+- **Smart APK Pull Engine**: Introduced the `pull` command / workspace keyword to extract installed APKs directly from connected Android devices by their package name.
+  - Automatically identifies and handles App Split files, seamlessly aggregating base & config split APKs into a single directory while retaining original application bundle filenames.
+  - Robust **Root Fallback** strategy via `/data/local/tmp` using `su -c` for devices with permission restrictions on `/data/app/`.
+  - Implemented dynamic Rich spinner UI and formatted status panels for elegant log outputs without spam or stutters.
+- **TUI & REPL Enhancements**:
+  - The interactive workspace now pre-fetches the list of all installed packages on the device into the `packages_cache` via an asynchronous background thread.
+  - Contextual Auto-completion for the `pull` command: instantly suggests valid package names, followed by targeted hints like paths and the `-d` device flag.
+
 ## [2.3.0] - 2026-03-05
 
 ### Added

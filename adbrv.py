@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 import sys
 import typer
 from typing import Optional, List
@@ -130,7 +130,7 @@ def main_callback(
         from prompt_toolkit.key_binding import KeyBindings
         
         allowed_commands_list = [
-            "set", "unset", "status", "frida-start", "frida-kill", 
+            "set", "unset", "status", "frida-start", "frida-kill", "pull",
             "help", "exit", "quit", "--help", "-h"
         ]
 
@@ -143,7 +143,7 @@ def main_callback(
             ends_with_space = text_lstrip.endswith(" ") or text_lstrip.endswith("\t")
             
             cmd = parts[0].lower()
-            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "help", "exit", "quit", "--help", "-h"]
+            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "pull", "help", "exit", "quit", "--help", "-h"]
             matching_cmds = [c for c in valid_cmds if c.startswith(cmd)]
             
             if not matching_cmds:
@@ -154,7 +154,7 @@ def main_callback(
                     return False
                 return True
 
-            expected_pos = 2 if cmd == "set" else 0
+            expected_pos = 2 if cmd in ["set", "pull"] else 0
             pos_count = 0
             has_flag = False
             flag_val_count = 0
@@ -183,7 +183,7 @@ def main_callback(
                     else:
                         if pos_count >= expected_pos:
                             return False
-                        if not part.isdigit():
+                        if cmd == "set" and not part.isdigit():
                             return False
                         pos_count += 1
                         
@@ -198,6 +198,20 @@ def main_callback(
                     return False
                     
             return True
+
+        packages_cache = []
+        import threading
+        
+        def fetch_packages_fn():
+            try:
+                from adbrv_module.pullAPK import get_installed_packages
+                pkgs = get_installed_packages()
+                if pkgs:
+                    packages_cache.extend(pkgs)
+            except Exception:
+                pass
+        
+        threading.Thread(target=fetch_packages_fn, daemon=True).start()
 
         class CommandCompleter(Completer):
             def get_completions(self, document, complete_event):
@@ -233,6 +247,28 @@ def main_callback(
                     if len(parts) == 1 and ends_with_space:
                         if "enter your port".startswith(word_before_cursor.lower()):
                             yield Completion("enter your port", start_position=-len(word_before_cursor))
+                    elif len(parts) == 3 and ends_with_space:
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
+                    elif len(parts) == 4 and not ends_with_space and parts[3].startswith("-"):
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
+                            
+                elif cmd == "pull":
+                    if len(parts) == 1 and ends_with_space:
+                        for pkg in packages_cache:
+                            if pkg.startswith(word_before_cursor.lower()):
+                                yield Completion(pkg, start_position=-len(word_before_cursor))
+                    elif len(parts) == 2 and not ends_with_space:
+                        for pkg in packages_cache:
+                            if pkg.startswith(word_before_cursor.lower()):
+                                yield Completion(pkg, start_position=-len(word_before_cursor))
+                    elif len(parts) == 2 and ends_with_space:
+                        if "path".startswith(word_before_cursor.lower()):
+                            yield Completion("path", start_position=-len(word_before_cursor))
+                    elif len(parts) == 3 and not ends_with_space and parts[2].startswith("-"):
+                        if "-d".startswith(word_before_cursor.lower()):
+                            yield Completion("-d", start_position=-len(word_before_cursor))
                     elif len(parts) == 3 and ends_with_space:
                         if "-d".startswith(word_before_cursor.lower()):
                             yield Completion("-d", start_position=-len(word_before_cursor))
@@ -290,6 +326,7 @@ def main_callback(
                     help_tbl.add_row("status", "Display proxy, reverse port, and frida-server status.")
                     help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
                     help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                    help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
                     help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
                     
                     panel = Panel(
@@ -310,6 +347,7 @@ def main_callback(
                     example_tbl.add_row("status -d 123", "Show status for specific device.")
                     example_tbl.add_row("frida-start", "Start server (prompts auto-selection).")
                     example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                    example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
                     example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
                     example_panel = Panel(
                         example_tbl,
@@ -324,7 +362,7 @@ def main_callback(
                 if not args:
                     continue
                     
-                allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "--help", "-h"}
+                allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "pull", "--help", "-h"}
                 if args[0] not in allowed_commands:
                     console.print(f"[bold red][!] Command '{args[0]}' is not supported inside Workspace.[/bold red]")
                     console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
@@ -426,6 +464,20 @@ def cmd_frida_kill(
         frida_kill(device)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
+        raise typer.Exit(1)
+
+@app.command(name="pull")
+def cmd_pull(
+    package_name: Annotated[str, typer.Argument(help="The package name of the app to pull")],
+    path: Annotated[Optional[str], typer.Argument(help="Optional destination path to save the APK")] = None,
+    device: Annotated[Optional[str], typer.Option("--device", "-d", help="Specific device serial")] = None,
+):
+    """Pull an installed APK from the device directly to your computer by package name."""
+    try:
+        from adbrv_module.pullAPK import pull_apk
+        pull_apk(package_name, path, device)
+    except Exception as e:
+        console.print(f"[bold red]❌ {e}[/bold red]")
         raise typer.Exit(1)
 
 @app.command(name="update")

@@ -33,6 +33,11 @@
   - **Important:** The server binary in `/data/local/tmp` must contain `frida-server` or `florida-server` (e.g. `florida-server-16.6.3-android-arm64`). Otherwise, adbrv cannot detect or manage it.
   - **Recommended:** Use server version 16.6.3 for best stability.
 
+- 📥 **App Extraction (Pull APKs)**
+  - `pull <package_name>` easily extracts installed APKs from the device down to your computer.
+  - Automatically handles Split APKs and packages them neatly.
+  - Intelligent fallback to `su` mode if standard `adb pull` encounters permission restrictions!
+
 - 🗝️ **APK resigning (uber-apk-signer integration)**
   - `--resign` flag allows you to resign APK files directly from adbrv using the integrated [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer).
   - Supports all original uber-apk-signer options and flags.
@@ -142,6 +147,8 @@ adbrv frida-kill [--device <serial>]
   # Kill all running frida-server processes on the device
   # If multiple processes are found, you will be asked to confirm before killing all
   # After stopping, the status will be checked and displayed
+adbrv pull <package_name> [path] [--device <serial>]
+  # Pull an installed APK from the device directly to your computer by package name
 adbrv update
   # Automatically update the script to the latest version from GitHub
 adbrv version
@@ -210,6 +217,13 @@ adbrv libsec
   ```bash
   adbrv frida-kill
   adbrv frida-kill --device emulator-5554
+  ```
+
+* Pull an installed APK from the device:
+
+  ```bash
+  adbrv pull com.example.app
+  adbrv pull com.example.app /Downloads
   ```
 
 * Update the script to the latest version from GitHub:
