@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.3"
+__version__ = "2.4.4"
 import sys
 import unicodedata
 import typer
@@ -571,10 +571,41 @@ def main_callback(
         kb = KeyBindings()
         from prompt_toolkit.filters import has_completions
 
+        def _is_warning_active(b):
+            if b.complete_state and b.complete_state.completions:
+                for c in b.complete_state.completions:
+                    if getattr(c, 'display', None) is not None and "[!]" in str(c.display):
+                        return True
+            return False
+
+        @kb.add('left')
+        def _(event):
+            buffer = event.app.current_buffer
+            if _is_warning_active(buffer): return
+            buffer.cursor_left()
+
+        @kb.add('up', filter=~has_completions)
+        def _(event):
+            b = event.app.current_buffer
+            b.auto_up(count=event.arg)
+            if b.text.strip():
+                def resume_completion():
+                    b.start_completion(select_first=False)
+                event.app.loop.call_soon_threadsafe(resume_completion)
+
+        @kb.add('down', filter=~has_completions)
+        def _(event):
+            b = event.app.current_buffer
+            b.auto_down(count=event.arg)
+            if b.text.strip():
+                def resume_completion():
+                    b.start_completion(select_first=False)
+                event.app.loop.call_soon_threadsafe(resume_completion)
 
         @kb.add('down', filter=has_completions)
         def _(event):
             b = event.app.current_buffer
+            if _is_warning_active(b): return
             state = b.complete_state
             if state and state.completions:
                 if state.complete_index is None:
@@ -585,6 +616,7 @@ def main_callback(
         @kb.add('up', filter=has_completions)
         def _(event):
             b = event.app.current_buffer
+            if _is_warning_active(b): return
             state = b.complete_state
             if state and state.completions:
                 if state.complete_index is None:
@@ -594,8 +626,9 @@ def main_callback(
 
         @kb.add('<any>')
         def _(event):
-            char = event.data
             buffer = event.app.current_buffer
+            if _is_warning_active(buffer): return
+            char = event.data
             new_text = buffer.text[:buffer.cursor_position] + char + buffer.text[buffer.cursor_position:]
             
             if is_valid_sentence_prefix(new_text):
@@ -617,6 +650,7 @@ def main_callback(
         @kb.add('enter')
         def _(event):
             buffer = event.app.current_buffer
+            if _is_warning_active(buffer): return
             
             # Nếu người dùng đang chọn menu completion bằng mũi tên và bấm Enter -> chỉ hoàn thành lệnh + hiện cảnh báo nếu có
             if buffer.complete_state and buffer.complete_state.current_completion:
@@ -659,6 +693,7 @@ def main_callback(
         @kb.add('right')
         def _(event):
             buffer = event.app.current_buffer
+            if _is_warning_active(buffer): return
             if buffer.complete_state and buffer.complete_state.current_completion:
                 buffer.apply_completion(buffer.complete_state.current_completion)
                 def resume_completion():
@@ -670,6 +705,7 @@ def main_callback(
         @kb.add('tab')
         def _(event):
             buffer = event.app.current_buffer
+            if _is_warning_active(buffer): return
             if buffer.complete_state and buffer.complete_state.current_completion:
                 buffer.apply_completion(buffer.complete_state.current_completion)
                 def resume_completion():

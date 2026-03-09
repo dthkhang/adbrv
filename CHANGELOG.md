@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.4] - 2026-03-09
+
+### Added
+- **Global Input Freeze on Warning**: Implemented a lockdown mechanism that disables all keyboard inputs (including arrows, enter, tab, and generic typing) whenever an invalid command warning is actively displayed in the autocomplete menu. This forces the user to resolve the error using Backspace.
+- **Smart History Autocompletion**: Overridden the default history navigation mechanics (`Up`/`Down` keys when the menu is closed) to instantly trigger the autocomplete & warning engine upon loading a command from history. This ensures old, contextually invalid commands like `frida-kill` (when Frida is off) are caught immediately.
+
 ## [2.4.3] - 2026-03-09
 
 ### Added
