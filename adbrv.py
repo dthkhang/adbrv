@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 import sys
 import unicodedata
 import typer
@@ -135,6 +135,176 @@ def main_callback(
             "help", "exit", "quit", "--help", "-h"
         ]
 
+        import time
+        import threading
+
+        packages_cache = []
+
+        class StatusCache:
+            def __init__(self):
+                self.devices = []
+                self.devices_last = 0
+                self.devices_fetching = False
+
+                self.frida = True
+                self.frida_last = 0
+                self.frida_fetching = False
+
+                self.unset = True
+                self.unset_last = 0
+                self.unset_fetching = False
+                
+                # Eagerly pre-fetch statuses in background
+                threading.Thread(target=self._initial_fetch, daemon=True).start()
+
+            def _initial_fetch(self):
+                try:
+                    from adbrv_module.devices import get_connected_devices, get_proxy_status, get_reverse_ports, adb_shell
+                    
+                    # 1. Fetch devices
+                    self.devices = get_connected_devices()
+                    self.devices_last = time.time()
+                    
+                    # 2. Fetch Unset (Proxy & Reverse Status)
+                    if self.devices:
+                        is_any = False
+                        for d in self.devices:
+                            p = get_proxy_status(d)
+                            r = get_reverse_ports(d)
+                            if (p and p not in [":0", "null", ""]) or (r and r != "(none)"):
+                                is_any = True
+                                break
+                        self.unset = is_any
+                    else:
+                        self.unset = False
+                    self.unset_last = time.time()
+                    
+                    # 3. Fetch Frida Status
+                    if self.devices:
+                        frida_ps = adb_shell(["ps", "|", "grep", "rida-server"])
+                        self.frida = bool(frida_ps and "rida-server" in frida_ps)
+                    else:
+                        self.frida = False
+                    self.frida_last = time.time()
+                except Exception:
+                    pass
+
+            def trigger_completion(self):
+                try:
+                    from prompt_toolkit.application import get_app
+                    app = get_app()
+                    def _do():
+                        if app.current_buffer.text:
+                            app.current_buffer.start_completion(select_first=False)
+                    app.loop.call_soon_threadsafe(_do)
+                except Exception:
+                    pass
+
+            def check_devices(self):
+                if time.time() - self.devices_last > 1.0:
+                    if not self.devices_fetching:
+                        self.devices_fetching = True
+                        def bg():
+                            try:
+                                from adbrv_module.devices import get_connected_devices
+                                self.devices = get_connected_devices()
+                            except Exception:
+                                self.devices = []
+                            self.devices_last = time.time()
+                            self.devices_fetching = False
+                            self.trigger_completion()
+                        threading.Thread(target=bg, daemon=True).start()
+                if self.devices_last == 0:
+                    return ["Optimistic"]
+                return self.devices
+
+            def check_frida(self):
+                if time.time() - self.frida_last > 1.5:
+                    if not self.frida_fetching:
+                        self.frida_fetching = True
+                        def bg():
+                            try:
+                                from adbrv_module.devices import adb_shell
+                                frida_ps = adb_shell(["ps", "|", "grep", "rida-server"])
+                                self.frida = bool(frida_ps and "rida-server" in frida_ps)
+                            except Exception:
+                                self.frida = False
+                            self.frida_last = time.time()
+                            self.frida_fetching = False
+                            self.trigger_completion()
+                        threading.Thread(target=bg, daemon=True).start()
+                if self.frida_last == 0:
+                    return True
+                return self.frida
+
+            def check_unset(self):
+                if time.time() - self.unset_last > 2.0:
+                    if not self.unset_fetching:
+                        self.unset_fetching = True
+                        def bg():
+                            try:
+                                from adbrv_module.devices import get_connected_devices, get_proxy_status, get_reverse_ports
+                                devs = get_connected_devices()
+                                self.devices = devs
+                                self.devices_last = time.time()
+                                is_any = False
+                                if devs:
+                                    for d in devs:
+                                        p = get_proxy_status(d)
+                                        r = get_reverse_ports(d)
+                                        if (p and p not in [":0", "null", ""]) or (r and r != "(none)"):
+                                            is_any = True
+                                            break
+                                self.unset = is_any
+                            except Exception:
+                                self.unset = False
+                            self.unset_last = time.time()
+                            self.unset_fetching = False
+                            self.unset_fetching = False
+                            self.trigger_completion()
+                        threading.Thread(target=bg, daemon=True).start()
+                if self.unset_last == 0:
+                    return True
+                return self.unset
+
+            def flush(self):
+                self.devices_last = 0
+                self.unset_last = 0
+                self.frida_last = 0
+                packages_cache.clear()
+                self.trigger_completion()
+                
+        status_cache = StatusCache()
+
+        class RealtimeMonitor:
+            def __init__(self, cache_instance):
+                self.cache = cache_instance
+                self.process = None
+                self.thread = threading.Thread(target=self._run, daemon=True)
+                self.thread.start()
+
+            def _run(self):
+                import subprocess
+                try:
+                    self.process = subprocess.Popen(["adb", "track-devices"], stdout=subprocess.PIPE, text=True)
+                    while True:
+                        line = self.process.stdout.readline()
+                        if not line and self.process.poll() is not None:
+                            break
+                        # Track devices triggered: device joined/left
+                        self.cache.flush()
+                except Exception:
+                    pass
+
+            def stop(self):
+                if self.process:
+                    try:
+                        self.process.kill()
+                    except:
+                        pass
+
+        realtime_monitor = RealtimeMonitor(status_cache)
+
         def is_valid_sentence_prefix(text):
             text_lstrip = text.lstrip()
             if not text_lstrip:
@@ -155,6 +325,21 @@ def main_callback(
                     return False
                 return True
 
+            if cmd in ["pull", "set", "unset", "status", "frida-start", "frida-kill"]:
+                if len(text_lstrip) > len(cmd):
+                    if not status_cache.check_devices():
+                        return False
+
+            if cmd == "frida-kill":
+                if len(text_lstrip) > len(cmd):
+                    if not status_cache.check_frida():
+                        return False
+
+            if cmd == "unset":
+                if len(text_lstrip) > len(cmd):
+                    if not status_cache.check_unset():
+                        return False
+
             expected_pos = 2 if cmd in ["set", "pull"] else 0
             pos_count = 0
             has_flag = False
@@ -164,6 +349,7 @@ def main_callback(
             while i < len(parts):
                 part = parts[i]
                 is_last = (i == len(parts) - 1)
+                
                 
                 if part.startswith("-"):
                     if part in ["-h", "--help"]:
@@ -186,6 +372,7 @@ def main_callback(
                             return False
                         if cmd == "set" and not part.isdigit():
                             return False
+                        
                         pos_count += 1
                         
                 i += 1
@@ -200,7 +387,6 @@ def main_callback(
                     
             return True
 
-        packages_cache = []
         import threading
         
         def fetch_packages_fn():
@@ -208,6 +394,7 @@ def main_callback(
                 from adbrv_module.pullAPK import get_installed_packages
                 pkgs = get_installed_packages()
                 if pkgs:
+                    packages_cache.clear()
                     packages_cache.extend(pkgs)
             except Exception:
                 pass
@@ -220,6 +407,17 @@ def main_callback(
 
         class CommandCompleter(Completer):
             def get_completions(self, document, complete_event):
+                completions = list(self._get_completions_inner(document, complete_event))
+                warnings = [c for c in completions if c.text == " " and getattr(c, 'display', None) is not None and "[!]" in str(c.display)]
+                
+                if warnings:
+                    for w in warnings:
+                        yield w
+                else:
+                    for c in completions:
+                        yield c
+
+            def _get_completions_inner(self, document, complete_event):
                 text = document.text_before_cursor
                 parts = text.split()
                 ends_with_space = text.endswith(" ") or text.endswith("\t")
@@ -233,24 +431,73 @@ def main_callback(
 
                 if len(parts) == 1 and not ends_with_space:
                     word_lower = parts[0].lower()
-                    for cmd in allowed_commands_list:
-                        if cmd.startswith(word_lower):
-                            yield Completion(cmd, start_position=-len(word_before_cursor))
-                    return
+                    exact_match_found = False
+                    for cmd_item in allowed_commands_list:
+                        if cmd_item.startswith(word_lower):
+                            if cmd_item == word_lower:
+                                exact_match_found = True
+                            yield Completion(cmd_item, start_position=-len(word_before_cursor))
+                    if not exact_match_found:
+                        return
 
                 cmd = parts[0].lower()
                 
                 if cmd in ["unset", "status", "frida-start", "frida-kill"]:
-                    if len(parts) == 1 and ends_with_space:
-                        if "-d".startswith(word_before_cursor.lower()):
+                    if len(parts) == 1:
+                        # Only show warnings if the user has typed the full exact command
+                        if cmd == parts[0].lower() and parts[0].lower() in ["unset", "status", "frida-start", "frida-kill"]:
+                            devices = status_cache.check_devices()
+                            from prompt_toolkit.formatted_text import HTML
+
+                            if not devices:
+                                yield Completion(
+                                    text=" ",
+                                    start_position=0,
+                                    display=HTML('<ansired>[!] No devices connected</ansired>')
+                                )
+                                return
+                                
+                            if cmd == "unset" and devices:
+                                is_any_set = status_cache.check_unset()
+                                if not is_any_set:
+                                    yield Completion(
+                                        text=" ",
+                                        start_position=0,
+                                        display=HTML('<ansired>[!] Nothing to unset (Proxy and Reverse ports are already empty)</ansired>')
+                                    )
+                                    return
+
+                            if cmd == "frida-kill":
+                                frida_running = status_cache.check_frida()
+                                if not frida_running:
+                                    yield Completion(
+                                        text=" ",
+                                        start_position=0,
+                                        display=HTML('<ansired>[!] Frida server is not running</ansired>')
+                                    )
+                                    return
+
+                        if ends_with_space and "-d".startswith(word_before_cursor.lower()):
                             yield Completion("-d", start_position=-len(word_before_cursor))
                     elif len(parts) == 2 and not ends_with_space and parts[1].startswith("-"):
                         if "-d".startswith(word_before_cursor.lower()):
                             yield Completion("-d", start_position=-len(word_before_cursor))
                             
                 elif cmd == "set":
-                    if len(parts) == 1 and ends_with_space:
-                        if "enter your port".startswith(word_before_cursor.lower()):
+                    if len(parts) == 1:
+                        if cmd == parts[0].lower() and parts[0].lower() == "set":
+                            devices = status_cache.check_devices()
+                            from prompt_toolkit.formatted_text import HTML
+
+                            if not devices:
+                                yield Completion(
+                                    text=" ",
+                                    start_position=0,
+                                    display=HTML('<ansired>[!] No devices connected</ansired>')
+                                )
+                                return
+                                
+                        if ends_with_space and "enter your port".startswith(word_before_cursor.lower()):
                             yield Completion("enter your port", start_position=-len(word_before_cursor))
                     elif len(parts) == 3 and ends_with_space:
                         if "-d".startswith(word_before_cursor.lower()):
@@ -261,29 +508,51 @@ def main_callback(
                             
                 elif cmd == "pull":
                     search_word = remove_accents(word_before_cursor.lower())
-                    if (len(parts) == 1 and ends_with_space) or (len(parts) == 2 and not ends_with_space):
-                        has_names = any(isinstance(p, dict) and p.get("name") for p in packages_cache)
-                        for pkg in packages_cache:
-                            if isinstance(pkg, dict):
-                                pkg_id = pkg.get("id", "").lower()
-                                pkg_name = remove_accents(pkg.get("name", "").lower())
-                                if search_word in pkg_id or search_word in pkg_name:
-                                    if has_names:
-                                        display_text = pkg.get("name") if pkg.get("name") else " "
-                                        yield Completion(
-                                            text=pkg["id"], 
-                                            start_position=-len(word_before_cursor), 
-                                            display=display_text, 
-                                            display_meta=pkg["id"]
-                                        )
+                    if (len(parts) == 1) or (len(parts) == 2 and not ends_with_space):
+                        if parts[0].lower() == "pull":
+                            devices = status_cache.check_devices()
+                            from prompt_toolkit.formatted_text import HTML
+                            if not devices:
+                                yield Completion(
+                                    text=" ",
+                                    start_position=0,
+                                    display=HTML('<ansired>[!] No devices connected</ansired>')
+                                )
+                                return
+                                
+                            if ends_with_space or len(parts) == 2:
+                                if not packages_cache:
+                                    import threading
+                                    threading.Thread(target=fetch_packages_fn, daemon=True).start()
+                                    yield Completion(
+                                        text=" ",
+                                        start_position=0,
+                                        display=HTML('<ansiyellow>[!] Loading packages. Please wait...</ansiyellow>')
+                                    )
+                                    return
+
+                                has_names = any(isinstance(p, dict) and p.get("name") for p in packages_cache)
+                                for pkg in packages_cache:
+                                    if isinstance(pkg, dict):
+                                        pkg_id = pkg.get("id", "").lower()
+                                        pkg_name = remove_accents(pkg.get("name", "").lower())
+                                        if search_word in pkg_id or search_word in pkg_name:
+                                            if has_names:
+                                                display_text = pkg.get("name") if pkg.get("name") else " "
+                                                yield Completion(
+                                                    text=pkg["id"], 
+                                                    start_position=-len(word_before_cursor), 
+                                                    display=display_text, 
+                                                    display_meta=pkg["id"]
+                                                )
+                                            else:
+                                                yield Completion(
+                                                    text=pkg["id"], 
+                                                    start_position=-len(word_before_cursor)
+                                                )
                                     else:
-                                        yield Completion(
-                                            text=pkg["id"], 
-                                            start_position=-len(word_before_cursor)
-                                        )
-                            else:
-                                if pkg.lower().startswith(search_word):
-                                    yield Completion(pkg, start_position=-len(word_before_cursor))
+                                        if pkg.lower().startswith(search_word):
+                                            yield Completion(pkg, start_position=-len(word_before_cursor))
                     elif len(parts) == 2 and ends_with_space:
                         if "path".startswith(word_before_cursor.lower()):
                             yield Completion("path", start_position=-len(word_before_cursor))
@@ -300,6 +569,28 @@ def main_callback(
         command_completer = CommandCompleter()
 
         kb = KeyBindings()
+        from prompt_toolkit.filters import has_completions
+
+
+        @kb.add('down', filter=has_completions)
+        def _(event):
+            b = event.app.current_buffer
+            state = b.complete_state
+            if state and state.completions:
+                if state.complete_index is None:
+                    state.complete_index = 0
+                else:
+                    state.complete_index = (state.complete_index + 1) % len(state.completions)
+
+        @kb.add('up', filter=has_completions)
+        def _(event):
+            b = event.app.current_buffer
+            state = b.complete_state
+            if state and state.completions:
+                if state.complete_index is None:
+                    state.complete_index = len(state.completions) - 1
+                else:
+                    state.complete_index = (state.complete_index - 1) % len(state.completions)
 
         @kb.add('<any>')
         def _(event):
@@ -309,8 +600,9 @@ def main_callback(
             
             if is_valid_sentence_prefix(new_text):
                 buffer.insert_text(char)
-                if buffer.text:
-                    buffer.start_completion(select_first=False)
+            # Luôn gọi start_completion để hiện warning ngay cả khi phím bị chặn không cho phép gõ tiếp
+            if buffer.text:
+                buffer.start_completion(select_first=False)
 
         @kb.add('escape', eager=True)
         def _(event):
@@ -322,86 +614,161 @@ def main_callback(
             if event.app.current_buffer.text:
                 event.app.current_buffer.start_completion(select_first=False)
 
+        @kb.add('enter')
+        def _(event):
+            buffer = event.app.current_buffer
+            
+            # Nếu người dùng đang chọn menu completion bằng mũi tên và bấm Enter -> chỉ hoàn thành lệnh + hiện cảnh báo nếu có
+            if buffer.complete_state and buffer.complete_state.current_completion:
+                buffer.apply_completion(buffer.complete_state.current_completion)
+                def resume_completion():
+                    buffer.start_completion(select_first=False)
+                event.app.loop.call_soon_threadsafe(resume_completion)
+                return
+                
+            text_lstrip = buffer.text.lstrip()
+            parts = text_lstrip.split()
+            
+            if not parts:
+                buffer.validate_and_handle()
+                return
+
+            cmd = parts[0].lower()
+            ends_with_space = text_lstrip.endswith(" ") or text_lstrip.endswith("\t")
+            
+            # Prevent enter for commands requiring devices if none connected
+            if cmd in ["pull", "set", "unset", "status", "frida-start", "frida-kill"]:
+                if len(parts) > 1 or ends_with_space:
+                    if not status_cache.check_devices():
+                        return # Ignore Enter key
+
+            # Prevent enter for frida-kill if frida server is not running
+            if cmd == "frida-kill":
+                if len(parts) > 1 or ends_with_space:
+                    if not status_cache.check_frida():
+                        return # Ignore Enter key
+                        
+            # Prevent enter for unset if no proxy or reverse set
+            if cmd == "unset":
+                if len(parts) > 1 or ends_with_space:
+                    if not status_cache.check_unset():
+                        return # Ignore Enter key
+                    
+            buffer.validate_and_handle()
+
+        @kb.add('right')
+        def _(event):
+            buffer = event.app.current_buffer
+            if buffer.complete_state and buffer.complete_state.current_completion:
+                buffer.apply_completion(buffer.complete_state.current_completion)
+                def resume_completion():
+                    buffer.start_completion(select_first=False)
+                event.app.loop.call_soon_threadsafe(resume_completion)
+                return
+            event.app.current_buffer.cursor_right()
+
+        @kb.add('tab')
+        def _(event):
+            buffer = event.app.current_buffer
+            if buffer.complete_state and buffer.complete_state.current_completion:
+                buffer.apply_completion(buffer.complete_state.current_completion)
+                def resume_completion():
+                    buffer.start_completion(select_first=False)
+                event.app.loop.call_soon_threadsafe(resume_completion)
+                return
+            # Nếu chưa có suggest menu, thì gọi
+            buffer.start_completion(select_first=False)
+
 
         
         console.print("[bold cyan]Welcome to adbrv Workspace. Type 'help' for available commands, 'exit' to quit.[/bold cyan]")
         session = PromptSession(history=InMemoryHistory())
     
-        while True:
-            try:
-                # eager=True in the KeyBinding bypasses the delay
-                cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=True, key_bindings=kb)
-                if not cmd.strip():
-                    continue
-                if cmd.strip().lower() in ["exit", "quit"]:
-                    break
-                if cmd.strip().lower() in ["help", "-h", "--help"]:
-                    from rich.table import Table
-                    from rich.panel import Panel
-                    from rich import box
-                    help_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
-                    help_tbl.add_column("Command", style="cyan", no_wrap=True)
-                    help_tbl.add_column("Description", style="default")
-                    help_tbl.add_row("set", "Set up ADB reverse proxy and HTTP proxy.")
-                    help_tbl.add_row("unset", "Remove proxy and all reverse ports on the selected (or all) devices.")
-                    help_tbl.add_row("status", "Display proxy, reverse port, and frida-server status.")
-                    help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
-                    help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
-                    help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
-                    help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
-                    
-                    panel = Panel(
-                        help_tbl,
-                        title="Commands",
-                        title_align="left",
-                        border_style="dim",
-                        box=box.ROUNDED
-                    )
-                    console.print(panel)
-                    
-                    example_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
-                    example_tbl.add_column(style="cyan", no_wrap=True)
-                    example_tbl.add_column()
-                    example_tbl.add_row("set 8080 8080", "Set up reverse proxy & HTTP proxy.")
-                    example_tbl.add_row("unset", "Remove proxy and all reverse ports.")
-                    example_tbl.add_row("status", "Show proxy, reverse port, and server status.")
-                    example_tbl.add_row("status -d 123", "Show status for specific device.")
-                    example_tbl.add_row("frida-start", "Start server (prompts auto-selection).")
-                    example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
-                    example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
-                    example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
-                    example_panel = Panel(
-                        example_tbl,
-                        title="Examples",
-                        title_align="left",
-                        border_style="dim"
-                    )
-                    console.print(example_panel)
-                    
-                    continue
-                args = shlex.split(cmd)
-                if not args:
-                    continue
-                    
-                allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "pull", "--help", "-h"}
-                if args[0] not in allowed_commands:
-                    console.print(f"[bold red][!] Command '{args[0]}' is not supported inside Workspace.[/bold red]")
-                    console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
-                    continue
-                    
+        try:
+            while True:
                 try:
-                    ctx.command(args=args, standalone_mode=False)
-                except click.exceptions.Exit:
-                    pass
-                except SystemExit:
-                    pass
-                except Exception as e:
-                    console.print(f"[bold red]Command Error: {e}[/bold red]")
-                    
-            except KeyboardInterrupt:
-                continue
-            except EOFError:
-                break
+                    # eager=True in the KeyBinding bypasses the delay
+                    cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=True, key_bindings=kb)
+                    if not cmd.strip():
+                        continue
+                    if cmd.strip().lower() in ["exit", "quit"]:
+                        break
+                    if cmd.strip().lower() in ["help", "-h", "--help"]:
+                        from rich.table import Table
+                        from rich.panel import Panel
+                        from rich import box
+                        help_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
+                        help_tbl.add_column("Command", style="cyan", no_wrap=True)
+                        help_tbl.add_column("Description", style="default")
+                        help_tbl.add_row("set", "Set up ADB reverse proxy and HTTP proxy.")
+                        help_tbl.add_row("unset", "Remove proxy and all reverse ports on the selected (or all) devices.")
+                        help_tbl.add_row("status", "Display proxy, reverse port, and frida-server status.")
+                        help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
+                        help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                        help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
+                        help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
+                        
+                        panel = Panel(
+                            help_tbl,
+                            title="Commands",
+                            title_align="left",
+                            border_style="dim",
+                            box=box.ROUNDED
+                        )
+                        console.print(panel)
+                        
+                        example_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
+                        example_tbl.add_column(style="cyan", no_wrap=True)
+                        example_tbl.add_column()
+                        example_tbl.add_row("set 8080 8080", "Set up reverse proxy & HTTP proxy.")
+                        example_tbl.add_row("unset", "Remove proxy and all reverse ports.")
+                        example_tbl.add_row("status", "Show proxy, reverse port, and server status.")
+                        example_tbl.add_row("status -d 123", "Show status for specific device.")
+                        example_tbl.add_row("frida-start", "Start server (prompts auto-selection).")
+                        example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                        example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
+                        example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
+                        example_panel = Panel(
+                            example_tbl,
+                            title="Examples",
+                            title_align="left",
+                            border_style="dim"
+                        )
+                        console.print(example_panel)
+                        
+                        continue
+                    args = shlex.split(cmd)
+                    if not args:
+                        continue
+                        
+                    allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "pull", "--help", "-h"}
+                    if args[0] not in allowed_commands:
+                        console.print(f"[bold red][!] Command '{args[0]}' is not supported inside Workspace.[/bold red]")
+                        console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
+                        continue
+                        
+                    try:
+                        ctx.command(args=args, standalone_mode=False)
+                    except click.exceptions.Exit:
+                        pass
+                    except SystemExit:
+                        pass
+                    except Exception as e:
+                        console.print(f"[bold red]Command Error: {e}[/bold red]")
+                    finally:
+                        # Flush caches sau khi chạy lệnh để refresh RealTime
+                        status_cache.flush()
+                        
+                except KeyboardInterrupt:
+                    continue
+                except EOFError:
+                    break
+        finally:
+            realtime_monitor.stop()
+            packages_cache.clear()
+            status_cache.devices.clear()
+            status_cache.frida = False
+            status_cache.unset = False
 
 @app.command(name="set")
 def cmd_set(

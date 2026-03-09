@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.3] - 2026-03-09
+
+### Added
+- **Real-Time Workspace Cache Invalidation**: The REPL now intelligently and explicitly flushes the status cache (`devices`, `frida`, `unset`, and `packages_cache`) immediately after any command executes, ensuring data stays 100% accurate and fresh.
+- **ADB Track-Devices Monitor**: Embedded a background thread powered by `adb track-devices` that live-streams hardware connection events. Automatically clears outdated suggestions if a USB cable is unplugged mid-session.
+- **Graceful Thread Cleanup**: Complete memory cleanup via an explicit `try...finally` block to kill dangling background polls when escaping the workspace.
+- **Refined Autocomplete Navigation**: Navigating the prompt toolkit menus with `Up`/`Down` arrows now isolates menu selection natively without automatically hijacking and pasting the content into the command line buffer.
+- **Silent Status Fetching**: Eliminated jarring `<ansiyellow>[!] Checking...` intermediate prompts to ensure a smoother typing experience; validations silently optimistically succeed and only interrupt the user if genuinely invalid.
+
 ## [2.4.2] - 2026-03-06
 
 ### Added
