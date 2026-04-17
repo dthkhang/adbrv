@@ -5,12 +5,13 @@ Library security analysis tools for .so files
 import os
 import subprocess
 import sys
-from .utils import print_colored, print_error, print_success, print_warning, RED, GREEN, YELLOW, RESET
+from .utils import print_colored, print_error, print_success, print_warning, RED, GREEN, YELLOW, RESET, check_dependencies
 
 def check_lib_security():
     """
     Check security features of .so files in current directory
     """
+    check_dependencies(['find', 'greadelf', 'strings'])
     # Find all .so files in current directory and subdirectories
     try:
         result = subprocess.run(['find', '.', '-name', '*.so'], capture_output=True, text=True, check=True)

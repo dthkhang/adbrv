@@ -5,12 +5,13 @@ Find .so files in APK files
 import os
 import subprocess
 import sys
-from .utils import print_colored, print_error, print_success, RED, GREEN
+from .utils import print_colored, print_error, print_success, RED, GREEN, check_dependencies
 
 def find_so_files():
     """
     Find .so files in all APK files in current directory
     """
+    check_dependencies(['unzip'])
     # Get all APK files in current directory
     apk_files = [f for f in os.listdir('.') if f.endswith('.apk')]
     

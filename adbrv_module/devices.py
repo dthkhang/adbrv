@@ -111,10 +111,18 @@ def check_devices_info(serial=None, show_title=True):
     table.add_column("Reverse", style="green")
 
     for s in devices:
-        model = adb_shell(["getprop", "ro.product.model"], s) or "?"
-        android = adb_shell(["getprop", "ro.build.version.release"], s) or "?"
-        su_check = adb_shell(["which", "su"], s)
-        root = "Yes" if su_check and su_check != '' else "No"
+        adb_base = ["adb", "-s", s] if s else ["adb"]
+        try:
+            res = subprocess.run(adb_base + ["shell", "getprop ro.product.model; getprop ro.build.version.release; which su"], capture_output=True, text=True, timeout=5)
+            lines = res.stdout.strip().splitlines()
+        except:
+            lines = []
+            
+        model = lines[0] if len(lines) > 0 and lines[0].strip() else "?"
+        android = lines[1] if len(lines) > 1 and lines[1].strip() else "?"
+        su_check = lines[2] if len(lines) > 2 else ""
+        
+        root = "Yes" if su_check and su_check.strip() else "No"
         root_style = "[bold green]Yes[/bold green]" if root == "Yes" else "[bold red]No[/bold red]"
         
         from .fridaTools import get_frida_status
@@ -152,19 +160,20 @@ def adb_shell(cmd, serial=None, check=True, input_text=None):
 
 
 def get_device_info(serial):
-    def adb_shell(cmd, serial=None):
-        adb_base = ["adb"]
-        if serial:
-            adb_base += ["-s", serial]
-        try:
-            result = subprocess.run(adb_base + ["shell"] + cmd, capture_output=True, text=True, check=True)
-            return result.stdout.strip()
-        except subprocess.CalledProcessError:
-            return None
-    model = adb_shell(["getprop", "ro.product.model"], serial) or "?"
-    android = adb_shell(["getprop", "ro.build.version.release"], serial) or "?"
-    su_check = adb_shell(["which", "su"], serial)
-    root = "Yes" if su_check and su_check != '' else "No"
+    adb_base = ["adb"]
+    if serial:
+        adb_base += ["-s", serial]
+    try:
+        res = subprocess.run(adb_base + ["shell", "getprop ro.product.model; getprop ro.build.version.release; which su"], capture_output=True, text=True, timeout=5)
+        lines = res.stdout.strip().splitlines()
+    except:
+        lines = []
+
+    model = lines[0] if len(lines) > 0 and lines[0].strip() else "?"
+    android = lines[1] if len(lines) > 1 and lines[1].strip() else "?"
+    su_check = lines[2] if len(lines) > 2 else ""
+    
+    root = "Yes" if su_check and su_check.strip() else "No"
     from .fridaTools import get_frida_status
     frida_status = get_frida_status(serial)
     proxy = get_proxy_status(serial)

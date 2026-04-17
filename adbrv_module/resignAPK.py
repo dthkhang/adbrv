@@ -13,6 +13,9 @@ def resign_apk(resign_args):
     """
     Resign APK file using integrated uber-apk-signer
     """
+    from .utils import check_dependencies
+    check_dependencies(['java'])
+    
     jar_path = os.path.join(os.path.dirname(__file__), 'tools', 'uber-apk-signer-1.3.0.jar')
     if not os.path.isfile(jar_path):
         console.print(f"[bold red]uber-apk-signer jar not found at {jar_path}[/bold red]")

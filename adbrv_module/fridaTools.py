@@ -63,7 +63,14 @@ def start_frida_server(serial=None):
         console = Console()
         with console.status(f"[bold green]Starting {fsName} in background...[/bold green]", spinner="bouncingBar"):
             # Set executable permission
-            subprocess.run(adb_base + ["shell", "chmod", "+x", fsName], check=True)
+            # Try su first (for root-owned files), fallback to shell, then proceed anyway
+            import shlex
+            safe_name = shlex.quote(fsName)
+            su_chmod = subprocess.run(adb_base + ["shell", "su", "-c", f"chmod +x {safe_name}"], capture_output=True)
+            if su_chmod.returncode != 0:
+                plain_chmod = subprocess.run(adb_base + ["shell", "chmod", "+x", fsName], capture_output=True)
+                if plain_chmod.returncode != 0:
+                    print_warning(f"chmod failed for {fsName}, file may already have execute permission — proceeding anyway.")
 
             # Start with root privileges (run in background)
             try:

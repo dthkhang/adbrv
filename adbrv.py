@@ -555,7 +555,7 @@ def main_callback(
                                             yield Completion(pkg, start_position=-len(word_before_cursor))
                     elif len(parts) == 2 and ends_with_space:
                         if "path".startswith(word_before_cursor.lower()):
-                            yield Completion("path", start_position=-len(word_before_cursor))
+                            yield Completion("enter your path", start_position=-len(word_before_cursor))
                     elif len(parts) == 3 and not ends_with_space and parts[2].startswith("-"):
                         if "-d".startswith(word_before_cursor.lower()):
                             yield Completion("-d", start_position=-len(word_before_cursor))

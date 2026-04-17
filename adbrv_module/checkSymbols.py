@@ -53,8 +53,8 @@ def check_symbols(base_folder):
         
     # Check nm tool availability
     nm_path = get_nm_path()
-    if not os.path.isfile(nm_path):
-        console.print(f"[bold red][!] nm tool not found at: {nm_path}[/bold red]")
+    if not nm_path or not os.path.isfile(nm_path):
+        console.print(f"[bold red][!] nm tool not found![/bold red]")
         sys.exit(1)
         
     # Scan .so files
