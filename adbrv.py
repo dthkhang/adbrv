@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.4"
+__version__ = "2.4.5"
 import sys
 import unicodedata
 import typer

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.5] - 2026-04-17
+
+### Fixed
+- **frida-start chmod permission bug**: `frida-start` no longer crashes when the server binary is owned by `root`. The fix applies a 3-step strategy: (1) try `su -c chmod +x` first, (2) fallback to plain `shell chmod +x`, (3) if both fail, log a warning and proceed anyway since the file may already have execute permission (`--x`). This resolves the `Operation not permitted` error for `florida-server` and any other root-owned server binaries.
+
+### Improved
+- **ADB Command Batching**: Device info queries (`Model`, `Android version`, `Root check`) are now sent as a single batched `adb shell` command instead of 3 sequential calls, tripling the speed of the `status` command especially when multiple devices are connected.
+- **Dynamic Tool Path Resolution**: Removed all hardcoded binary paths (e.g. `/Library/Developer/CommandLineTools/usr/bin/nm`). Now uses `shutil.which()` to automatically resolve the correct path on any OS/environment (macOS Homebrew, macOS CLT, Kali Linux, NixOS, etc.).
+- **Dependency Pre-flight Checks**: Added graceful dependency validation before running analysis features. If `java`, `unzip`, `greadelf`, `strings`, or `nm` are missing, the tool now prints a clear red error message instead of crashing with a raw `FileNotFoundError`.
+
 ## [2.4.4] - 2026-03-09
 
 ### Added
