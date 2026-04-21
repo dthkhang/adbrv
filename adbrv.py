@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.5"
+__version__ = "2.4.6"
 import sys
 import unicodedata
 import typer
@@ -159,32 +159,51 @@ def main_callback(
 
             def _initial_fetch(self):
                 try:
-                    from adbrv_module.devices import get_connected_devices, get_proxy_status, get_reverse_ports, adb_shell
+                    from adbrv_module.devices import get_connected_devices
                     
-                    # 1. Fetch devices
+                    # 1. Fetch devices (this uses 'adb devices', not 'adb shell')
                     self.devices = get_connected_devices()
                     self.devices_last = time.time()
                     
-                    # 2. Fetch Unset (Proxy & Reverse Status)
-                    if self.devices:
-                        is_any = False
-                        for d in self.devices:
-                            p = get_proxy_status(d)
-                            r = get_reverse_ports(d)
-                            if (p and p not in [":0", "null", ""]) or (r and r != "(none)"):
-                                is_any = True
-                                break
-                        self.unset = is_any
-                    else:
+                    if not self.devices:
                         self.unset = False
-                    self.unset_last = time.time()
-                    
-                    # 3. Fetch Frida Status
-                    if self.devices:
-                        frida_ps = adb_shell(["ps", "|", "grep", "rida-server"])
-                        self.frida = bool(frida_ps and "rida-server" in frida_ps)
-                    else:
                         self.frida = False
+                        self.unset_last = time.time()
+                        self.frida_last = time.time()
+                        return
+                    
+                    # 2. Batch query: proxy + frida status in ONE adb shell call per device
+                    for d in self.devices:
+                        adb_base = ["adb", "-s", d]
+                        try:
+                            batch_cmd = "settings get global http_proxy; echo '---DELIM---'; ps | grep rida-server"
+                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=5)
+                            parts = res.stdout.split("---DELIM---")
+                            
+                            # Parse proxy
+                            proxy = parts[0].strip() if len(parts) > 0 else ""
+                            if proxy and proxy not in [":0", "null", ""]:
+                                self.unset = True
+                            
+                            # Parse frida
+                            frida_out = parts[1].strip() if len(parts) > 1 else ""
+                            if "rida-server" in frida_out:
+                                self.frida = True
+                            else:
+                                self.frida = False
+                        except:
+                            pass
+                    
+                    # 3. Check reverse ports (this uses 'adb reverse', not 'adb shell' — separate command)
+                    for d in self.devices:
+                        try:
+                            rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=3)
+                            if rev.stdout.strip():
+                                self.unset = True
+                        except:
+                            pass
+                    
+                    self.unset_last = time.time()
                     self.frida_last = time.time()
                 except Exception:
                     pass
@@ -194,14 +213,16 @@ def main_callback(
                     from prompt_toolkit.application import get_app
                     app = get_app()
                     def _do():
-                        if app.current_buffer.text:
-                            app.current_buffer.start_completion(select_first=False)
+                        buf = app.current_buffer
+                        if buf.text:
+                            buf.cancel_completion()
+                            buf.start_completion(select_first=False)
                     app.loop.call_soon_threadsafe(_do)
                 except Exception:
                     pass
 
             def check_devices(self):
-                if time.time() - self.devices_last > 1.0:
+                if time.time() - self.devices_last > 5.0:
                     if not self.devices_fetching:
                         self.devices_fetching = True
                         def bg():
@@ -212,14 +233,13 @@ def main_callback(
                                 self.devices = []
                             self.devices_last = time.time()
                             self.devices_fetching = False
-                            self.trigger_completion()
                         threading.Thread(target=bg, daemon=True).start()
                 if self.devices_last == 0:
                     return ["Optimistic"]
                 return self.devices
 
             def check_frida(self):
-                if time.time() - self.frida_last > 1.5:
+                if time.time() - self.frida_last > 8.0:
                     if not self.frida_fetching:
                         self.frida_fetching = True
                         def bg():
@@ -231,28 +251,34 @@ def main_callback(
                                 self.frida = False
                             self.frida_last = time.time()
                             self.frida_fetching = False
-                            self.trigger_completion()
                         threading.Thread(target=bg, daemon=True).start()
                 if self.frida_last == 0:
                     return True
                 return self.frida
 
             def check_unset(self):
-                if time.time() - self.unset_last > 2.0:
+                if time.time() - self.unset_last > 10.0:
                     if not self.unset_fetching:
                         self.unset_fetching = True
                         def bg():
                             try:
-                                from adbrv_module.devices import get_connected_devices, get_proxy_status, get_reverse_ports
+                                from adbrv_module.devices import get_connected_devices
                                 devs = get_connected_devices()
                                 self.devices = devs
                                 self.devices_last = time.time()
                                 is_any = False
                                 if devs:
                                     for d in devs:
-                                        p = get_proxy_status(d)
-                                        r = get_reverse_ports(d)
-                                        if (p and p not in [":0", "null", ""]) or (r and r != "(none)"):
+                                        adb_base = ["adb", "-s", d]
+                                        # Batch proxy check into 1 call
+                                        res = subprocess.run(adb_base + ["shell", "settings get global http_proxy"], capture_output=True, text=True, timeout=3)
+                                        p = res.stdout.strip()
+                                        if p and p not in [":0", "null", ""]:
+                                            is_any = True
+                                            break
+                                        # Check reverse (non-shell command)
+                                        rev = subprocess.run(adb_base + ["reverse", "--list"], capture_output=True, text=True, timeout=3)
+                                        if rev.stdout.strip():
                                             is_any = True
                                             break
                                 self.unset = is_any
@@ -260,8 +286,6 @@ def main_callback(
                                 self.unset = False
                             self.unset_last = time.time()
                             self.unset_fetching = False
-                            self.unset_fetching = False
-                            self.trigger_completion()
                         threading.Thread(target=bg, daemon=True).start()
                 if self.unset_last == 0:
                     return True
@@ -390,12 +414,17 @@ def main_callback(
         import threading
         
         def fetch_packages_fn():
+            # Wait for initial status fetch to finish before querying packages
+            # This prevents ADB server contention during startup
+            while status_cache.devices_last == 0:
+                time.sleep(0.2)
             try:
                 from adbrv_module.pullAPK import get_installed_packages
                 pkgs = get_installed_packages()
                 if pkgs:
                     packages_cache.clear()
                     packages_cache.extend(pkgs)
+                    status_cache.trigger_completion()
             except Exception:
                 pass
         
@@ -818,10 +847,9 @@ def cmd_set(
             console.print("[bold red][!] Invalid port. Port must be an integer between 1 and 65535.[/bold red]")
             raise typer.Exit(1)
             
-        from adbrv_module.devices import select_device, check_devices_info
+        from adbrv_module.devices import select_device
         target_device = select_device(device)
         set_proxy(local_port, device_port, target_device)
-        check_devices_info(target_device, show_title=False)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)
@@ -836,15 +864,13 @@ def cmd_unset(
         if not devices:
             console.print("[bold red][!] No devices connected.[/bold red]")
             raise typer.Exit(1)
-        from adbrv_module.devices import select_device, check_devices_info
+        from adbrv_module.devices import select_device
         if device:
             target_device = select_device(device)
             unset_proxy_and_reverse(target_device)
-            check_devices_info(target_device, show_title=False)
         else:
             for d in devices:
                 unset_proxy_and_reverse(d)
-            check_devices_info(show_title=False)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)
@@ -873,8 +899,6 @@ def cmd_frida_start(
     """Start frida-server on the device with root privileges."""
     try:
         start_frida_server(device)
-        from adbrv_module.devices import check_devices_info
-        check_devices_info(show_title=False)
     except (AdbError, ProxyError, CoreError) as e:
         console.print(f"[bold red][!] {e}[/bold red]")
         raise typer.Exit(1)

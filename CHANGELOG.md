@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.6] - 2026-04-21
+
+### Improved
+- **Startup Performance**: Batched all initial ADB queries into a single shell call per device (proxy + frida status in one command). Staggered package list loading to avoid ADB server contention. Reduced startup from 4-5 concurrent ADB calls to 2 sequential ones.
+- **Keystroke Responsiveness**: Fixed completion cascade loop where background status checks were repeatedly triggering `start_completion()`, causing keystrokes to be dropped. Removed `trigger_completion()` from status callbacks and increased throttle intervals.
+- **Inline Command Feedback**: Commands `set`, `unset`, `frida-start`, `frida-kill` now show spinner → checkmark step tracker instead of printing a full status table. Table is only shown on explicit `status` command, eliminating table spam.
+- **Consistent Output Indentation**: All command output lines use 2-space indent for visual consistency across set/unset/frida-start/frida-kill/status.
+- **Package List Auto-refresh**: When typing `pull`, the "Loading packages..." dropdown now auto-refreshes to show the package list once loading completes, without needing to retype.
+
+### Fixed
+- **`frida-kill` import bug**: Fixed `cannot import name 'get_frida_status' from 'adbrv_module.devices'` error — function was in `fridaTools.py`, not `devices.py`.
+- **`set` stdout leak**: Fixed raw port number leaking into terminal output between log lines when running `adb reverse`.
+
 ## [2.4.5] - 2026-04-17
 
 ### Fixed

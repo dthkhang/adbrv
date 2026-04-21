@@ -74,6 +74,7 @@ def print_all_status(serial=None):
         print(f"Device {serial}:")
         print(f"  Proxy:   {proxy}")
         print(f"  Reverse: {reverse}")
+_last_table_lines = 0
 
 def check_devices_info(serial=None, show_title=True):
     from rich.console import Console
@@ -81,17 +82,6 @@ def check_devices_info(serial=None, show_title=True):
     from rich import box
     console = Console()
     
-    import re
-    def adb_shell(cmd, serial=None):
-        adb_base = ["adb"]
-        if serial:
-            adb_base += ["-s", serial]
-        try:
-            result = subprocess.run(adb_base + ["shell"] + cmd, capture_output=True, text=True, check=True)
-            return result.stdout.strip()
-        except subprocess.CalledProcessError:
-            return None
-
     if serial:
         devices = [serial]
     else:
@@ -100,8 +90,7 @@ def check_devices_info(serial=None, show_title=True):
         console.print("[bold red][!] No devices connected.[/bold red]")
         return
         
-    title_text = "Connected Devices Status" if show_title else None
-    table = Table(title=title_text, box=box.ROUNDED)
+    table = Table(title=None, box=box.ROUNDED)
     table.add_column("Device Serial", style="cyan", no_wrap=True)
     table.add_column("Model", style="magenta")
     table.add_column("Android", justify="center")
@@ -144,8 +133,8 @@ def check_devices_info(serial=None, show_title=True):
             proxy,
             reverse
         )
-        
-    console.print(table)
+    from rich.padding import Padding
+    console.print(Padding(table, (0, 0, 0, 2)))
 
 def adb_shell(cmd, serial=None, check=True, input_text=None):
     adb_base = ["adb"]

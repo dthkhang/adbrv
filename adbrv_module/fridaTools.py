@@ -15,6 +15,8 @@ def start_frida_server(serial=None):
     adb_base = ["adb"]
     if serial:
         adb_base += ["-s", serial]
+    from rich.console import Console
+    console = Console()
     
     fs = "/data/local/tmp/*rida-server*"
     
@@ -23,20 +25,20 @@ def start_frida_server(serial=None):
         result = subprocess.run(adb_base + ["shell", "ls", fs], capture_output=True, text=True)
         
         if result.returncode != 0:
-            print_error("Frida/Florida Server Not Found!!")
-            print_warning("Please check the server filename in /data/local/tmp. It must contain 'frida-server' or 'florida-server'.")
+            console.print("  [bold red][!] Frida/Florida Server Not Found!![/bold red]")
+            console.print("  [yellow][!] Please check the server filename in /data/local/tmp.[/yellow]")
             return False
             
         # Get server filename
         frida_files = result.stdout.strip().splitlines()
         if not frida_files:
-            print_error("No Frida/Florida server files found!")
-            print_warning("Please check the server filename in /data/local/tmp. It must contain 'frida-server' or 'florida-server'.")
+            console.print("  [bold red][!] No Frida/Florida server files found![/bold red]")
+            console.print("  [yellow][!] Please check the server filename in /data/local/tmp.[/yellow]")
             return False
             
         if len(frida_files) == 1:
             fsName = frida_files[0]
-            print_info(f"Found Server: {fsName}")
+            console.print(f"  [cyan][i] Found: {fsName}[/cyan]")
         else:
             import questionary
             fsName = questionary.select(
@@ -48,20 +50,18 @@ def start_frida_server(serial=None):
             if not fsName:  # User cancelled
                 return False
                 
-            print_info(f"Selected Server: {fsName}")
+            console.print(f"  [cyan][i] Selected: {fsName}[/cyan]")
 
         # Check if already running
         ps_result = subprocess.run(adb_base + ["shell", "ps | grep rida-server"], 
                                  capture_output=True, text=True)
 
         if "rida-server" in ps_result.stdout:
-            print_warning("Frida/Florida Server Is Running")
+            console.print("  [bold yellow][!] Frida/Florida Server Is Already Running[/bold yellow]")
             return True
 
         # Start frida-server
-        from rich.console import Console
-        console = Console()
-        with console.status(f"[bold green]Starting {fsName} in background...[/bold green]", spinner="bouncingBar"):
+        with console.status("  [cyan]Starting server...[/cyan]", spinner="bouncingBar"):
             # Set executable permission
             # Try su first (for root-owned files), fallback to shell, then proceed anyway
             import shlex
@@ -86,17 +86,17 @@ def start_frida_server(serial=None):
                                          capture_output=True, text=True)
             
             if "rida-server" in verify_result.stdout:
-                console.print(f"[bold green]✔ Server Start Success!! ({fsName})[/bold green]")
+                console.print(f"  [bold green]✔[/bold green] Server     [cyan]{fsName}[/cyan]")
                 return True
             else:
-                console.print("[bold red]✖ Server Start Failed!! Check & Try Again[/bold red]")
+                console.print("  [bold red]✖ Server Start Failed!! Check & Try Again[/bold red]")
                 return False
             
     except subprocess.CalledProcessError as e:
-        print_error(f"Error: {e}")
+        console.print(f"  [bold red][!] Error: {e}[/bold red]")
         return False
     except Exception as e:
-        print_error(f"Unexpected error: {e}")
+        console.print(f"  [bold red][!] Unexpected error: {e}[/bold red]")
         return False
 
 def frida_kill(serial=None):
@@ -107,7 +107,8 @@ def frida_kill(serial=None):
     # List server processes
     ps_out = adb_shell(["ps", "|", "grep", "rida-server"], serial)
     if not ps_out or "rida-server" not in ps_out:
-        print_info("No frida/florida server process running.")
+        from rich.console import Console
+        Console().print("  [dim][i] No frida/florida server process running.[/dim]")
         return
         
     # Parse PIDs
@@ -124,7 +125,8 @@ def frida_kill(serial=None):
                 procs.append((pid, line))
                 
     if not procs:
-        print_info("No frida/florida server process running.")
+        from rich.console import Console
+        Console().print("  [dim][i] No frida/florida server process running.[/dim]")
         return
         
     if len(procs) > 1:
@@ -136,7 +138,8 @@ def frida_kill(serial=None):
             "Do you want to kill all server processes?"
         ).ask()
         if not confirm:
-            print_info("Abort killing server processes.")
+            from rich.console import Console
+            Console().print("  [dim][i] Abort killing server processes.[/dim]")
             return
             
     for pid, _ in procs:
@@ -147,13 +150,20 @@ def frida_kill(serial=None):
         kill_cmd = f"su -c 'kill -9 {pid}'"
         try:
             subprocess.run(adb_base + ["shell", kill_cmd], check=True)
-            print_success(f"Killed frida-server process PID {pid} on device {serial}.")
+            from rich.console import Console
+            Console().print(f"  [bold green]✔[/bold green] Killed    [cyan]PID {pid} on {serial}[/cyan]")
         except Exception as e:
-            print_error(f"Failed to kill PID {pid}: {e}")
+            from rich.console import Console
+            Console().print(f"  [bold red]✖[/bold red] Failed to kill PID {pid}: {e}")
             
-    print_info("Checking frida-server status...")
-    from .devices import check_devices_info
-    check_devices_info(serial, show_title=False)
+    from rich.console import Console
+    _console = Console()
+    with _console.status("  [dim]Verifying...[/dim]", spinner="dots"):
+        frida_status = get_frida_status(serial)
+    if "On" in frida_status:
+        _console.print(f"  [bold yellow]⚠[/bold yellow] Server still running: [cyan]{frida_status}[/cyan]")
+    else:
+        _console.print(f"  [bold green]✔[/bold green] Frida     [cyan]stopped[/cyan]")
 
 def get_frida_status(serial):
     """Get frida/florida server status for a device"""
