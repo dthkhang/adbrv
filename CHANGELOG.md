@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.7] - 2026-06-12
+
+### Added
+- **Real-time Pull Progress Bar**: Implemented pseudo-terminal (`pty`) emulation for `adb pull` execution to force ADB to output percentage progress (`[ 35%]`). Dynamically parses output and displays a smooth progress bar via `rich.progress.Progress` for single APKs, split APKs, and fallback root pulls.
+
+### Fixed
+- **Terminal Color Code Issue**: Resolved an issue where ANSI/VT100 escape codes (like `?[1;31m`) were printed raw inside the interactive workspace. This was solved by passing `raw=True` to `prompt_toolkit.patch_stdout`.
+- **Emoji-free UI Style**: Replaced all emojis in the `pull` output with clean, developer-focused CLI symbols (`✔`, `✖`, `[!]`, `[*]`).
+- **Normalized Table Statuses**: Standardized output values for both `Proxy` and `Reverse` fields in the `status` command table to consistently display `"null"` when not configured.
+
 ## [2.4.6] - 2026-04-21
 
 ### Improved

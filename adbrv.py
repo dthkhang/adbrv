@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-__version__ = "2.4.6"
-import sys
+__version__ = "2.4.7"
+import sys, subprocess
 import unicodedata
 import typer
 from typing import Optional, List
@@ -129,6 +129,10 @@ def main_callback(
         from prompt_toolkit.history import InMemoryHistory
         from prompt_toolkit.completion import Completer, Completion
         from prompt_toolkit.key_binding import KeyBindings
+        import logging
+        logging.getLogger("prompt_toolkit").setLevel(logging.ERROR)
+        from prompt_toolkit.application import Application
+        Application.cpr_not_supported_callback = lambda self: None
         
         allowed_commands_list = [
             "set", "unset", "status", "frida-start", "frida-kill", "pull",
@@ -138,75 +142,119 @@ def main_callback(
         import time
         import threading
 
+        import json
+        import os
+
         packages_cache = []
+        cache_file_path = os.path.expanduser("~/.adbrv_packages_cache.json")
+        if os.path.isfile(cache_file_path):
+            try:
+                with open(cache_file_path, "r", encoding="utf-8") as f:
+                    packages_cache = json.load(f)
+            except Exception:
+                packages_cache = []
 
         class StatusCache:
-            def __init__(self):
-                self.devices = []
-                self.devices_last = 0
-                self.devices_fetching = False
-
+            def __init__(self, initial_devices=None):
+                self.devices = initial_devices if initial_devices is not None else ["Optimistic"]
+                self.device_models = {}
                 self.frida = True
-                self.frida_last = 0
-                self.frida_fetching = False
-
                 self.unset = True
-                self.unset_last = 0
-                self.unset_fetching = False
+                self.fetching = False
                 
                 # Eagerly pre-fetch statuses in background
-                threading.Thread(target=self._initial_fetch, daemon=True).start()
+                self.trigger_update()
 
-            def _initial_fetch(self):
+            def _fetch_status_worker(self):
+                if self.fetching:
+                    return
+                self.fetching = True
                 try:
                     from adbrv_module.devices import get_connected_devices
+                    devs = get_connected_devices()
                     
-                    # 1. Fetch devices (this uses 'adb devices', not 'adb shell')
-                    self.devices = get_connected_devices()
-                    self.devices_last = time.time()
-                    
-                    if not self.devices:
-                        self.unset = False
-                        self.frida = False
-                        self.unset_last = time.time()
-                        self.frida_last = time.time()
-                        return
-                    
-                    # 2. Batch query: proxy + frida status in ONE adb shell call per device
-                    for d in self.devices:
+                    new_models = {}
+                    # Batch check proxy + frida + model name
+                    is_any_set = False
+                    is_any_frida = False
+                    for d in devs:
                         adb_base = ["adb", "-s", d]
                         try:
-                            batch_cmd = "settings get global http_proxy; echo '---DELIM---'; ps | grep rida-server"
-                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=5)
+                            batch_cmd = "settings get global http_proxy; echo '---DELIM---'; ps | grep rida-server; echo '---DELIM---'; getprop ro.product.model"
+                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=3)
                             parts = res.stdout.split("---DELIM---")
                             
-                            # Parse proxy
                             proxy = parts[0].strip() if len(parts) > 0 else ""
                             if proxy and proxy not in [":0", "null", ""]:
-                                self.unset = True
+                                is_any_set = True
                             
-                            # Parse frida
                             frida_out = parts[1].strip() if len(parts) > 1 else ""
                             if "rida-server" in frida_out:
-                                self.frida = True
-                            else:
-                                self.frida = False
+                                is_any_frida = True
+                                
+                            model = parts[2].strip() if len(parts) > 2 else ""
+                            if model:
+                                new_models[d] = model
                         except:
                             pass
                     
-                    # 3. Check reverse ports (this uses 'adb reverse', not 'adb shell' — separate command)
-                    for d in self.devices:
-                        try:
-                            rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=3)
-                            if rev.stdout.strip():
-                                self.unset = True
-                        except:
-                            pass
+                    if self.devices != ["Optimistic"]:
+                        old_devs = set(self.devices)
+                        new_devs = set(devs)
+                        
+                        from prompt_toolkit import print_formatted_text
+                        from prompt_toolkit.formatted_text import HTML
+                        
+                        removed = old_devs - new_devs
+                        for d in removed:
+                            model = self.device_models.get(d, "")
+                            display_name = model if model else d
+                            print_formatted_text(HTML(f"<ansired>[!] Device disconnected: {display_name}</ansired>"))
+                            self.device_models.pop(d, None)
+                            
+                        added = new_devs - old_devs
+                        for d in added:
+                            model = new_models.get(d, "")
+                            if not model:
+                                try:
+                                    res = subprocess.run(["adb", "-s", d, "shell", "getprop ro.product.model"], capture_output=True, text=True, timeout=2)
+                                    model = res.stdout.strip()
+                                except:
+                                    pass
+                            display_name = model if model else d
+                            print_formatted_text(HTML(f"<ansigreen>[+] Device connected: {display_name}</ansigreen>"))
+                            # Fetch package name mapping in background for the new device
+                            threading.Thread(target=fetch_packages_fn, daemon=True).start()
+                            
+                    self.devices = devs
+                    self.device_models.update(new_models)
                     
-                    self.unset_last = time.time()
-                    self.frida_last = time.time()
+                    if not devs:
+                        self.unset = False
+                        self.frida = False
+                        return
+                            
+                    # Check reverse
+                    if not is_any_set:
+                        for d in devs:
+                            try:
+                                rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=2)
+                                if rev.stdout.strip():
+                                    is_any_set = True
+                                    break
+                            except:
+                                pass
+                                
+                    self.unset = is_any_set
+                    self.frida = is_any_frida
                 except Exception:
                     pass
+                finally:
+                    self.fetching = False
+                    self.trigger_completion()
+
+            def trigger_update(self):
+                threading.Thread(target=self._fetch_status_worker, daemon=True).start()
 
             def trigger_completion(self):
                 try:
@@ -222,83 +270,34 @@ def main_callback(
                     pass
 
             def check_devices(self):
-                if time.time() - self.devices_last > 5.0:
-                    if not self.devices_fetching:
-                        self.devices_fetching = True
-                        def bg():
-                            try:
-                                from adbrv_module.devices import get_connected_devices
-                                self.devices = get_connected_devices()
-                            except Exception:
-                                self.devices = []
-                            self.devices_last = time.time()
-                            self.devices_fetching = False
-                        threading.Thread(target=bg, daemon=True).start()
-                if self.devices_last == 0:
-                    return ["Optimistic"]
                 return self.devices
 
             def check_frida(self):
-                if time.time() - self.frida_last > 8.0:
-                    if not self.frida_fetching:
-                        self.frida_fetching = True
-                        def bg():
-                            try:
-                                from adbrv_module.devices import adb_shell
-                                frida_ps = adb_shell(["ps", "|", "grep", "rida-server"])
-                                self.frida = bool(frida_ps and "rida-server" in frida_ps)
-                            except Exception:
-                                self.frida = False
-                            self.frida_last = time.time()
-                            self.frida_fetching = False
-                        threading.Thread(target=bg, daemon=True).start()
-                if self.frida_last == 0:
-                    return True
                 return self.frida
 
             def check_unset(self):
-                if time.time() - self.unset_last > 10.0:
-                    if not self.unset_fetching:
-                        self.unset_fetching = True
-                        def bg():
-                            try:
-                                from adbrv_module.devices import get_connected_devices
-                                devs = get_connected_devices()
-                                self.devices = devs
-                                self.devices_last = time.time()
-                                is_any = False
-                                if devs:
-                                    for d in devs:
-                                        adb_base = ["adb", "-s", d]
-                                        # Batch proxy check into 1 call
-                                        res = subprocess.run(adb_base + ["shell", "settings get global http_proxy"], capture_output=True, text=True, timeout=3)
-                                        p = res.stdout.strip()
-                                        if p and p not in [":0", "null", ""]:
-                                            is_any = True
-                                            break
-                                        # Check reverse (non-shell command)
-                                        rev = subprocess.run(adb_base + ["reverse", "--list"], capture_output=True, text=True, timeout=3)
-                                        if rev.stdout.strip():
-                                            is_any = True
-                                            break
-                                self.unset = is_any
-                            except Exception:
-                                self.unset = False
-                            self.unset_last = time.time()
-                            self.unset_fetching = False
-                        threading.Thread(target=bg, daemon=True).start()
-                if self.unset_last == 0:
-                    return True
                 return self.unset
 
             def flush(self):
-                self.devices_last = 0
-                self.unset_last = 0
-                self.frida_last = 0
-                packages_cache.clear()
-                self.trigger_completion()
+                self.trigger_update()
+                threading.Thread(target=fetch_packages_fn, daemon=True).start()
                 
-        status_cache = StatusCache()
+        # Check connected devices at startup
+        from adbrv_module.devices import get_connected_devices
+        try:
+            init_devs = get_connected_devices()
+        except Exception:
+            init_devs = []
+            
+        status_cache = StatusCache(init_devs)
+        for d in init_devs:
+            try:
+                res = subprocess.run(["adb", "-s", d, "shell", "getprop ro.product.model"], capture_output=True, text=True, timeout=2)
+                model = res.stdout.strip()
+                if model:
+                    status_cache.device_models[d] = model
+            except Exception:
+                pass
 
         class RealtimeMonitor:
             def __init__(self, cache_instance):
@@ -411,19 +410,57 @@ def main_callback(
                     
             return True
 
-        import threading
-        
         def fetch_packages_fn():
-            # Wait for initial status fetch to finish before querying packages
-            # This prevents ADB server contention during startup
-            while status_cache.devices_last == 0:
-                time.sleep(0.2)
+            # Wait for status fetching to complete so we don't cause contention
+            while status_cache.fetching:
+                time.sleep(0.1)
+                
+            devices = status_cache.check_devices()
+            if not devices or devices == ["Optimistic"]:
+                return
+            target_device = devices[0]
+            
+            # Stage 1: Get package list quickly
             try:
-                from adbrv_module.pullAPK import get_installed_packages
-                pkgs = get_installed_packages()
-                if pkgs:
+                from adbrv_module.pullAPK import get_installed_packages_fast
+                fast_pkgs = get_installed_packages_fast(target_device)
+                if fast_pkgs:
+                    existing_names = {p["id"]: p.get("name", "") for p in packages_cache if p.get("name")}
+                    updated_pkgs = []
+                    for fp in fast_pkgs:
+                        pkg_id = fp["id"]
+                        friendly_name = existing_names.get(pkg_id, "")
+                        updated_pkgs.append({"id": pkg_id, "name": friendly_name})
+                    
                     packages_cache.clear()
-                    packages_cache.extend(pkgs)
+                    packages_cache.extend(updated_pkgs)
+                    
+                    try:
+                        with open(cache_file_path, "w", encoding="utf-8") as f:
+                            json.dump(packages_cache, f, ensure_ascii=False, indent=2)
+                    except:
+                        pass
+                    status_cache.trigger_completion()
+            except Exception:
+                pass
+
+            # Stage 2: Load friendly names using frida-ps in the background
+            try:
+                from adbrv_module.pullAPK import get_packages_friendly_names
+                friendly_names = get_packages_friendly_names(target_device)
+                if friendly_names:
+                    for pkg_obj in packages_cache:
+                        pkg_id = pkg_obj["id"]
+                        if pkg_id in friendly_names:
+                            pkg_obj["name"] = friendly_names[pkg_id]
+                    
+                    packages_cache.sort(key=lambda x: not bool(x.get("name")))
+                    
+                    try:
+                        with open(cache_file_path, "w", encoding="utf-8") as f:
+                            json.dump(packages_cache, f, ensure_ascii=False, indent=2)
+                    except:
+                        pass
                     status_cache.trigger_completion()
             except Exception:
                 pass
@@ -746,88 +783,98 @@ def main_callback(
 
 
         
+        from prompt_toolkit.patch_stdout import patch_stdout
+
         console.print("[bold cyan]Welcome to adbrv Workspace. Type 'help' for available commands, 'exit' to quit.[/bold cyan]")
+        if status_cache.devices and status_cache.devices != ["Optimistic"]:
+            for d in status_cache.devices:
+                model = status_cache.device_models.get(d, "")
+                display_name = model if model else d
+                console.print(f"[bold green][+] Device connected: {display_name}[/bold green]")
+        else:
+            console.print("[bold red][!] Warning: No devices connected. Please connect a device via USB/Wi-Fi.[/bold red]")
         session = PromptSession(history=InMemoryHistory())
     
         try:
-            while True:
-                try:
-                    # eager=True in the KeyBinding bypasses the delay
-                    cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=True, key_bindings=kb)
-                    if not cmd.strip():
-                        continue
-                    if cmd.strip().lower() in ["exit", "quit"]:
-                        break
-                    if cmd.strip().lower() in ["help", "-h", "--help"]:
-                        from rich.table import Table
-                        from rich.panel import Panel
-                        from rich import box
-                        help_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
-                        help_tbl.add_column("Command", style="cyan", no_wrap=True)
-                        help_tbl.add_column("Description", style="default")
-                        help_tbl.add_row("set", "Set up ADB reverse proxy and HTTP proxy.")
-                        help_tbl.add_row("unset", "Remove proxy and all reverse ports on the selected (or all) devices.")
-                        help_tbl.add_row("status", "Display proxy, reverse port, and frida-server status.")
-                        help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
-                        help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
-                        help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
-                        help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
-                        
-                        panel = Panel(
-                            help_tbl,
-                            title="Commands",
-                            title_align="left",
-                            border_style="dim",
-                            box=box.ROUNDED
-                        )
-                        console.print(panel)
-                        
-                        example_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
-                        example_tbl.add_column(style="cyan", no_wrap=True)
-                        example_tbl.add_column()
-                        example_tbl.add_row("set 8080 8080", "Set up reverse proxy & HTTP proxy.")
-                        example_tbl.add_row("unset", "Remove proxy and all reverse ports.")
-                        example_tbl.add_row("status", "Show proxy, reverse port, and server status.")
-                        example_tbl.add_row("status -d 123", "Show status for specific device.")
-                        example_tbl.add_row("frida-start", "Start server (prompts auto-selection).")
-                        example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
-                        example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
-                        example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
-                        example_panel = Panel(
-                            example_tbl,
-                            title="Examples",
-                            title_align="left",
-                            border_style="dim"
-                        )
-                        console.print(example_panel)
-                        
-                        continue
-                    args = shlex.split(cmd)
-                    if not args:
-                        continue
-                        
-                    allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "pull", "--help", "-h"}
-                    if args[0] not in allowed_commands:
-                        console.print(f"[bold red][!] Command '{args[0]}' is not supported inside Workspace.[/bold red]")
-                        console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
-                        continue
-                        
+            with patch_stdout(raw=True):
+                while True:
                     try:
-                        ctx.command(args=args, standalone_mode=False)
-                    except click.exceptions.Exit:
-                        pass
-                    except SystemExit:
-                        pass
-                    except Exception as e:
-                        console.print(f"[bold red]Command Error: {e}[/bold red]")
-                    finally:
-                        # Flush caches sau khi chạy lệnh để refresh RealTime
-                        status_cache.flush()
-                        
-                except KeyboardInterrupt:
-                    continue
-                except EOFError:
-                    break
+                        # eager=True in the KeyBinding bypasses the delay
+                        cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=True, key_bindings=kb)
+                        if not cmd.strip():
+                            continue
+                        if cmd.strip().lower() in ["exit", "quit"]:
+                            break
+                        if cmd.strip().lower() in ["help", "-h", "--help"]:
+                            from rich.table import Table
+                            from rich.panel import Panel
+                            from rich import box
+                            help_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
+                            help_tbl.add_column("Command", style="cyan", no_wrap=True)
+                            help_tbl.add_column("Description", style="default")
+                            help_tbl.add_row("set", "Set up ADB reverse proxy and HTTP proxy.")
+                            help_tbl.add_row("unset", "Remove proxy and all reverse ports on the selected (or all) devices.")
+                            help_tbl.add_row("status", "Display proxy, reverse port, and frida-server status.")
+                            help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
+                            help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                            help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
+                            help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
+                            
+                            panel = Panel(
+                                help_tbl,
+                                title="Commands",
+                                title_align="left",
+                                border_style="dim",
+                                box=box.ROUNDED
+                            )
+                            console.print(panel)
+                            
+                            example_tbl = Table(box=None, show_header=False, pad_edge=True, padding=(0, 3))
+                            example_tbl.add_column(style="cyan", no_wrap=True)
+                            example_tbl.add_column()
+                            example_tbl.add_row("set 8080 8080", "Set up reverse proxy & HTTP proxy.")
+                            example_tbl.add_row("unset", "Remove proxy and all reverse ports.")
+                            example_tbl.add_row("status", "Show proxy, reverse port, and server status.")
+                            example_tbl.add_row("status -d 123", "Show status for specific device.")
+                            example_tbl.add_row("frida-start", "Start server (prompts auto-selection).")
+                            example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
+                            example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
+                            example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
+                            example_panel = Panel(
+                                example_tbl,
+                                title="Examples",
+                                title_align="left",
+                                border_style="dim"
+                            )
+                            console.print(example_panel)
+                            
+                            continue
+                        args = shlex.split(cmd)
+                        if not args:
+                            continue
+                            
+                        allowed_commands = {"set", "unset", "status", "frida-start", "frida-kill", "pull", "--help", "-h"}
+                        if args[0] not in allowed_commands:
+                            console.print(f"[bold red][!] Command '{args[0]}' is not supported inside Workspace.[/bold red]")
+                            console.print("[yellow]Please type 'exit' to leave the workspace and run it normally, or type 'help' for allowing commands in Workspace.[/yellow]")
+                            continue
+                            
+                        try:
+                            ctx.command(args=args, standalone_mode=False)
+                        except click.exceptions.Exit:
+                            pass
+                        except SystemExit:
+                            pass
+                        except Exception as e:
+                            console.print(f"[bold red]Command Error: {e}[/bold red]")
+                        finally:
+                            # Flush caches sau khi chạy lệnh để refresh RealTime
+                            status_cache.flush()
+                            
+                    except KeyboardInterrupt:
+                        continue
+                    except EOFError:
+                        break
         finally:
             realtime_monitor.stop()
             packages_cache.clear()
@@ -925,7 +972,7 @@ def cmd_pull(
         from adbrv_module.pullAPK import pull_apk
         pull_apk(package_name, path, device)
     except Exception as e:
-        console.print(f"[bold red]❌ {e}[/bold red]")
+        console.print(f"[bold red]✖ {e}[/bold red]")
         raise typer.Exit(1)
 
 @app.command(name="update")

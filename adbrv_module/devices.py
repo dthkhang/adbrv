@@ -45,7 +45,10 @@ def get_proxy_status(serial=None):
         adb_base += ["-s", serial]
     try:
         result = subprocess.run(adb_base + ["shell", "settings", "get", "global", "http_proxy"], capture_output=True, text=True, check=True)
-        return result.stdout.strip()
+        val = result.stdout.strip()
+        if not val or val == ":0" or val == "null" or val == "None":
+            return "null"
+        return val
     except subprocess.CalledProcessError:
         raise AdbError("Device disconnected or cannot get proxy status.")
 
@@ -56,7 +59,7 @@ def get_reverse_ports(serial=None):
     try:
         result = subprocess.run(adb_base + ["reverse", "--list"], capture_output=True, text=True, check=True)
         result_cut = result.stdout.split()[-2:]
-        return ' '.join(result_cut) if result_cut else "(none)"
+        return ' '.join(result_cut) if result_cut else "null"
     except subprocess.CalledProcessError:
         raise AdbError("Device disconnected or cannot get reverse ports.")
 
