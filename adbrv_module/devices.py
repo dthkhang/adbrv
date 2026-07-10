@@ -94,13 +94,13 @@ def check_devices_info(serial=None, show_title=True):
         return
         
     table = Table(title=None, box=box.ROUNDED)
-    table.add_column("Device Serial", style="cyan", no_wrap=True)
-    table.add_column("Model", style="magenta")
+    table.add_column("Device Serial", style="cyan", no_wrap=True, justify="center")
+    table.add_column("Model", style="magenta", justify="center")
     table.add_column("Android", justify="center")
     table.add_column("Root Access", justify="center")
     table.add_column("Frida", justify="center")
-    table.add_column("Proxy", style="yellow")
-    table.add_column("Reverse", style="green")
+    table.add_column("Proxy", style="yellow", justify="center")
+    table.add_column("Reverse", style="green", justify="center")
 
     for s in devices:
         adb_base = ["adb", "-s", s] if s else ["adb"]
@@ -139,14 +139,16 @@ def check_devices_info(serial=None, show_title=True):
     from rich.padding import Padding
     console.print(Padding(table, (0, 0, 0, 2)))
 
-def adb_shell(cmd, serial=None, check=True, input_text=None):
+def adb_shell(cmd, serial=None, check=True, input_text=None, timeout=5):
     adb_base = ["adb"]
     if serial:
         adb_base += ["-s", serial]
     try:
-        result = subprocess.run(adb_base + ["shell"] + cmd, capture_output=True, text=True, check=check, input=input_text, stdin=subprocess.DEVNULL if input_text is None else None)
+        result = subprocess.run(adb_base + ["shell"] + cmd, capture_output=True, text=True, check=check, input=input_text, stdin=subprocess.DEVNULL if input_text is None else None, timeout=timeout)
         return result.stdout.strip()
     except subprocess.CalledProcessError:
+        return None
+    except subprocess.TimeoutExpired:
         return None
 
 

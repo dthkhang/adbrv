@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.9] - 2026-07-10
+
+### Added
+- **Auto Status on Startup**: When devices are connected, the full status table (model, Android version, root, Frida, proxy, reverse) is automatically displayed upon entering the workspace. Uses cached data from the existing background fetch — zero extra ADB calls.
+
+### Improved
+- **Version Sync**: `setup.py` now auto-reads `__version__` from `adbrv.py` via regex, eliminating version mismatch between pip-installed package and source.
+- **`adb_shell` Timeout**: Added default `timeout=5` to `adb_shell()` to prevent infinite hangs when device is unresponsive. Callers can override with custom timeout.
+- **Status Table Alignment**: All columns in the status table are now center-aligned for a cleaner, more consistent look.
+- **Extended Batch Command**: The background status worker now fetches Android version and root access in the same single `adb shell` call, adding zero extra latency.
+
 ## [2.4.8] - 2026-07-10
 
 ### Fixed

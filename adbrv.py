@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.8"
+__version__ = "2.4.9"
 import sys, subprocess
 import unicodedata
 import typer
@@ -136,7 +136,7 @@ def main_callback(
         
         allowed_commands_list = [
             "set", "unset", "status", "frida-start", "frida-kill", "pull",
-            "help", "exit", "quit", "--help", "-h"
+            "help", "exit", "quit", "ss", "--help", "-h"
         ]
 
         import time
@@ -161,10 +161,17 @@ def main_callback(
         _completion_debounce_lock = threading.Lock()
         _workspace_start_time = time.time()
 
+        _initial_status_printed = False
+
         class StatusCache:
             def __init__(self, initial_devices=None):
                 self.devices = initial_devices if initial_devices is not None else ["Optimistic"]
                 self.device_models = {}
+                self.device_androids = {}
+                self.device_roots = {}
+                self.device_proxies = {}
+                self.device_frida_details = {}
+                self.device_reverses = {}
                 self.frida = True
                 self.unset = True
                 
@@ -180,29 +187,71 @@ def main_callback(
                     devs = get_connected_devices()
                     
                     new_models = {}
-                    # Batch check proxy + frida + model name
+                    new_androids = {}
+                    new_roots = {}
+                    new_proxies = {}
+                    new_frida_details = {}
+                    new_reverses = {}
+                    # Batch check proxy + frida + model + android + root in ONE adb shell call
                     is_any_set = False
                     is_any_frida = False
                     for d in devs:
                         adb_base = ["adb", "-s", d]
                         try:
-                            batch_cmd = "settings get global http_proxy; echo '---DELIM---'; ps | grep rida-server; echo '---DELIM---'; getprop ro.product.model"
-                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=3, stdin=subprocess.DEVNULL)
+                            batch_cmd = "settings get global http_proxy; echo '---DELIM---'; ps | grep rida-server; echo '---DELIM---'; getprop ro.product.model; echo '---DELIM---'; getprop ro.build.version.release; echo '---DELIM---'; which su"
+                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
                             parts = res.stdout.split("---DELIM---")
                             
                             proxy = parts[0].strip() if len(parts) > 0 else ""
                             if proxy and proxy not in [":0", "null", ""]:
                                 is_any_set = True
+                                new_proxies[d] = proxy
+                            else:
+                                new_proxies[d] = "null"
                             
                             frida_out = parts[1].strip() if len(parts) > 1 else ""
                             if "rida-server" in frida_out:
                                 is_any_frida = True
+                                # Parse PID and user from frida output
+                                try:
+                                    for line in frida_out.splitlines():
+                                        if "rida-server" in line:
+                                            fparts = line.split()
+                                            user = fparts[0] if fparts else "shell"
+                                            pid = next((p for p in fparts[1:] if p.isdigit()), None)
+                                            new_frida_details[d] = f"On ({user} - PID: {pid})" if pid else f"On ({user})"
+                                            break
+                                except:
+                                    new_frida_details[d] = "On"
+                            else:
+                                new_frida_details[d] = "Off"
                                 
                             model = parts[2].strip() if len(parts) > 2 else ""
                             if model:
                                 new_models[d] = model
+                            
+                            android = parts[3].strip() if len(parts) > 3 else ""
+                            if android:
+                                new_androids[d] = android
+                            
+                            su_check = parts[4].strip() if len(parts) > 4 else ""
+                            new_roots[d] = bool(su_check)
                         except:
                             pass
+                        
+                        # Reverse ports per device
+                        try:
+                            rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
+                            rev_out = rev.stdout.strip()
+                            if rev_out:
+                                # Parse like get_reverse_ports: take last 2 tokens (strips "UsbFfs" prefix)
+                                rev_parts = rev_out.split()[-2:]
+                                new_reverses[d] = ' '.join(rev_parts) if rev_parts else "null"
+                                is_any_set = True
+                            else:
+                                new_reverses[d] = "null"
+                        except:
+                            new_reverses[d] = "null"
                     
                     if self.devices != ["Optimistic"]:
                         old_devs = set(self.devices)
@@ -225,40 +274,79 @@ def main_callback(
                                 try:
                                     res = subprocess.run(["adb", "-s", d, "shell", "getprop ro.product.model"], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
                                     model = res.stdout.strip()
+                                    new_models[d] = model
                                 except:
                                     pass
                             display_name = model if model else d
                             print_formatted_text(HTML(f"<ansigreen>[+] Device connected: {display_name}</ansigreen>"))
-                            # Fetch package name mapping in background for the new device
                             _schedule_packages_fetch()
                             
                     self.devices = devs
                     self.device_models.update(new_models)
+                    self.device_androids.update(new_androids)
+                    self.device_roots.update(new_roots)
+                    self.device_proxies.update(new_proxies)
+                    self.device_frida_details.update(new_frida_details)
+                    self.device_reverses.update(new_reverses)
                     
                     if not devs:
                         self.unset = False
                         self.frida = False
                         return
-                            
-                    # Check reverse
-                    if not is_any_set:
-                        for d in devs:
-                            try:
-                                rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
-                                if rev.stdout.strip():
-                                    is_any_set = True
-                                    break
-                            except:
-                                pass
                                 
                     self.unset = is_any_set
                     self.frida = is_any_frida
+                    
+                    # Auto-print status table on first fetch
+                    self._print_initial_status()
                 except Exception:
                     pass
                 finally:
                     _status_done_event.set()
                     _status_lock.release()
                     self.trigger_completion()
+
+            def _print_initial_status(self):
+                nonlocal _initial_status_printed
+                if _initial_status_printed or not self.devices:
+                    return
+                _initial_status_printed = True
+                try:
+                    from rich.console import Console
+                    from rich.table import Table
+                    from rich import box
+                    from rich.padding import Padding
+                    import io
+                    
+                    _console = Console(file=io.StringIO(), force_terminal=True)
+                    table = Table(title=None, box=box.ROUNDED)
+                    table.add_column("Device Serial", style="cyan", no_wrap=True, justify="center")
+                    table.add_column("Model", style="magenta", justify="center")
+                    table.add_column("Android", justify="center")
+                    table.add_column("Root Access", justify="center")
+                    table.add_column("Frida", justify="center")
+                    table.add_column("Proxy", style="yellow", justify="center")
+                    table.add_column("Reverse", style="green", justify="center")
+                    
+                    for d in self.devices:
+                        model = self.device_models.get(d, "?")
+                        android = self.device_androids.get(d, "?")
+                        root = self.device_roots.get(d, False)
+                        root_style = "[bold green]Yes[/bold green]" if root else "[bold red]No[/bold red]"
+                        frida = self.device_frida_details.get(d, "Off")
+                        frida_style = f"[bold green]{frida}[/bold green]" if "On" in frida else f"[dim]{frida}[/dim]"
+                        proxy = self.device_proxies.get(d, "null")
+                        reverse = self.device_reverses.get(d, "null")
+                        table.add_row(d, model, android, root_style, frida_style, proxy, reverse)
+                    
+                    _console.print(Padding(table, (0, 0, 0, 2)))
+                    table_str = _console.file.getvalue()
+                    
+                    from prompt_toolkit import print_formatted_text
+                    from prompt_toolkit.formatted_text import ANSI
+                    print_formatted_text(ANSI(table_str))
+                except Exception:
+                    pass
 
             def trigger_update(self):
                 threading.Thread(target=self._fetch_status_worker, daemon=True).start()
@@ -371,7 +459,7 @@ def main_callback(
             ends_with_space = text_lstrip.endswith(" ") or text_lstrip.endswith("\t")
             
             cmd = parts[0].lower()
-            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "pull", "help", "exit", "quit", "--help", "-h"]
+            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "pull", "ss", "help", "exit", "quit", "--help", "-h"]
             matching_cmds = [c for c in valid_cmds if c.startswith(cmd)]
             
             if not matching_cmds:
@@ -438,7 +526,7 @@ def main_callback(
                 if pos_count == expected_pos and has_flag and flag_val_count == 1:
                     return False
                     
-            if cmd in ["help", "exit", "quit", "--help", "-h"]:
+            if cmd in ["help", "exit", "quit", "ss", "--help", "-h"]:
                 if ends_with_space or len(parts) > 1:
                     return False
                     
@@ -827,12 +915,7 @@ def main_callback(
         from prompt_toolkit.patch_stdout import patch_stdout
 
         console.print("[bold cyan]Welcome to adbrv Workspace. Type 'help' for available commands, 'exit' to quit.[/bold cyan]")
-        if status_cache.devices and status_cache.devices != ["Optimistic"]:
-            for d in status_cache.devices:
-                model = status_cache.device_models.get(d, "")
-                display_name = model if model else d
-                console.print(f"[bold green][+] Device connected: {display_name}[/bold green]")
-        else:
+        if not status_cache.devices or status_cache.devices == ["Optimistic"]:
             console.print("[bold red][!] Warning: No devices connected. Please connect a device via USB/Wi-Fi.[/bold red]")
         session = PromptSession(history=InMemoryHistory())
     
@@ -844,7 +927,7 @@ def main_callback(
                         cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=False, key_bindings=kb)
                         if not cmd.strip():
                             continue
-                        if cmd.strip().lower() in ["exit", "quit"]:
+                        if cmd.strip().lower() in ["exit", "quit", "q"]:
                             break
                         if cmd.strip().lower() in ["help", "-h", "--help"]:
                             from rich.table import Table
@@ -859,6 +942,7 @@ def main_callback(
                             help_tbl.add_row("frida-start", "Start frida/florida-server on the device with root privileges.")
                             help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
                             help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
+                            help_tbl.add_row("ss", "Take a screenshot and copy to clipboard.")
                             help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
                             
                             panel = Panel(
@@ -881,6 +965,7 @@ def main_callback(
                             example_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
                             example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
                             example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
+                            example_tbl.add_row("ss", "Take a screenshot and copy to clipboard (Cmd+V to paste).")
                             example_panel = Panel(
                                 example_tbl,
                                 title="Examples",
@@ -889,6 +974,34 @@ def main_callback(
                             )
                             console.print(example_panel)
                             
+                            continue
+                        if cmd.strip().lower() == "ss":
+                            try:
+                                devs = status_cache.devices
+                                if not devs or devs == ["Optimistic"]:
+                                    console.print("  [bold red]✖[/bold red] No device connected.")
+                                    continue
+                                serial = devs[0]
+                                result = subprocess.run(
+                                    ["adb", "-s", serial, "exec-out", "screencap", "-p"],
+                                    capture_output=True, timeout=5, stdin=subprocess.DEVNULL
+                                )
+                                if result.returncode != 0 or not result.stdout:
+                                    console.print("  [bold red]✖[/bold red] Screenshot failed.")
+                                    continue
+                                tmp_path = "/tmp/adbrv_ss.png"
+                                with open(tmp_path, "wb") as f:
+                                    f.write(result.stdout)
+                                # Fire-and-forget: don't wait for clipboard copy
+                                subprocess.Popen(
+                                    ["osascript", "-e", f'set the clipboard to (read (POSIX file "{tmp_path}") as «class PNGf»)'],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL
+                                )
+                                console.print("  [bold green]✔[/bold green] Screenshot copied to clipboard.")
+                            except subprocess.TimeoutExpired:
+                                console.print("  [bold red]✖[/bold red] Screenshot timed out.")
+                            except Exception as e:
+                                console.print(f"  [bold red]✖[/bold red] Screenshot error: {e}")
                             continue
                         args = shlex.split(cmd)
                         if not args:

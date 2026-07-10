@@ -1,8 +1,12 @@
 from setuptools import setup
+import re
+
+with open('adbrv.py', encoding='utf-8') as f:
+    version = re.search(r'__version__\s*=\s*"([^"]+)"', f.read()).group(1)
 
 setup(
     name='adbrv',
-    version='2.4.8',
+    version=version,
     description='ADB reverse port forwarding, HTTP proxy configuration, APK analysis tools, and security assessment for Android devices.',
     author='kx4n9',
     url='https://github.com/dthkhang/adbrv',
