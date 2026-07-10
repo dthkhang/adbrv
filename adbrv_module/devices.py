@@ -5,7 +5,7 @@ class AdbError(Exception):
 
 def get_connected_devices():
     try:
-        result = subprocess.run(["adb", "devices"], capture_output=True, text=True)
+        result = subprocess.run(["adb", "devices"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
         lines = result.stdout.strip().splitlines()[1:]  # skip first line
         devices = [line.split()[0] for line in lines if '\tdevice' in line]
         return devices
@@ -144,7 +144,7 @@ def adb_shell(cmd, serial=None, check=True, input_text=None):
     if serial:
         adb_base += ["-s", serial]
     try:
-        result = subprocess.run(adb_base + ["shell"] + cmd, capture_output=True, text=True, check=check, input=input_text)
+        result = subprocess.run(adb_base + ["shell"] + cmd, capture_output=True, text=True, check=check, input=input_text, stdin=subprocess.DEVNULL if input_text is None else None)
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return None

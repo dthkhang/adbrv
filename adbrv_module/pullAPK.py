@@ -24,7 +24,7 @@ def get_installed_packages_fast(device=None):
         cmd.extend(["-s", device])
     cmd.extend(["shell", "pm", "list", "packages"])
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
         if result.returncode != 0:
             return []
             
@@ -49,7 +49,7 @@ def get_packages_friendly_names(device=None):
         
     frida_cmd = ["frida-ps", "-D", device, "-ia"]
     try:
-        frida_res = subprocess.run(frida_cmd, capture_output=True, text=True, timeout=8)
+        frida_res = subprocess.run(frida_cmd, capture_output=True, text=True, timeout=8, stdin=subprocess.DEVNULL)
         if frida_res.returncode == 0:
             name_map = {}
             for line in frida_res.stdout.splitlines():

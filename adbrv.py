@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.7"
+__version__ = "2.4.8"
 import sys, subprocess
 import unicodedata
 import typer
@@ -154,21 +154,27 @@ def main_callback(
             except Exception:
                 packages_cache = []
 
+        _status_lock = threading.Lock()
+        _packages_lock = threading.Lock()
+        _status_done_event = threading.Event()
+        _completion_debounce_timer = None
+        _completion_debounce_lock = threading.Lock()
+        _workspace_start_time = time.time()
+
         class StatusCache:
             def __init__(self, initial_devices=None):
                 self.devices = initial_devices if initial_devices is not None else ["Optimistic"]
                 self.device_models = {}
                 self.frida = True
                 self.unset = True
-                self.fetching = False
                 
                 # Eagerly pre-fetch statuses in background
                 self.trigger_update()
 
             def _fetch_status_worker(self):
-                if self.fetching:
+                if not _status_lock.acquire(blocking=False):
                     return
-                self.fetching = True
+                _status_done_event.clear()
                 try:
                     from adbrv_module.devices import get_connected_devices
                     devs = get_connected_devices()
@@ -181,7 +187,7 @@ def main_callback(
                         adb_base = ["adb", "-s", d]
                         try:
                             batch_cmd = "settings get global http_proxy; echo '---DELIM---'; ps | grep rida-server; echo '---DELIM---'; getprop ro.product.model"
-                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=3)
+                            res = subprocess.run(adb_base + ["shell", batch_cmd], capture_output=True, text=True, timeout=3, stdin=subprocess.DEVNULL)
                             parts = res.stdout.split("---DELIM---")
                             
                             proxy = parts[0].strip() if len(parts) > 0 else ""
@@ -217,14 +223,14 @@ def main_callback(
                             model = new_models.get(d, "")
                             if not model:
                                 try:
-                                    res = subprocess.run(["adb", "-s", d, "shell", "getprop ro.product.model"], capture_output=True, text=True, timeout=2)
+                                    res = subprocess.run(["adb", "-s", d, "shell", "getprop ro.product.model"], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
                                     model = res.stdout.strip()
                                 except:
                                     pass
                             display_name = model if model else d
                             print_formatted_text(HTML(f"<ansigreen>[+] Device connected: {display_name}</ansigreen>"))
                             # Fetch package name mapping in background for the new device
-                            threading.Thread(target=fetch_packages_fn, daemon=True).start()
+                            _schedule_packages_fetch()
                             
                     self.devices = devs
                     self.device_models.update(new_models)
@@ -238,7 +244,7 @@ def main_callback(
                     if not is_any_set:
                         for d in devs:
                             try:
-                                rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=2)
+                                rev = subprocess.run(["adb", "-s", d, "reverse", "--list"], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
                                 if rev.stdout.strip():
                                     is_any_set = True
                                     break
@@ -250,24 +256,37 @@ def main_callback(
                 except Exception:
                     pass
                 finally:
-                    self.fetching = False
+                    _status_done_event.set()
+                    _status_lock.release()
                     self.trigger_completion()
 
             def trigger_update(self):
                 threading.Thread(target=self._fetch_status_worker, daemon=True).start()
 
             def trigger_completion(self):
-                try:
-                    from prompt_toolkit.application import get_app
-                    app = get_app()
-                    def _do():
-                        buf = app.current_buffer
-                        if buf.text:
-                            buf.cancel_completion()
-                            buf.start_completion(select_first=False)
-                    app.loop.call_soon_threadsafe(_do)
-                except Exception:
-                    pass
+                nonlocal _completion_debounce_timer
+                # Skip during first 3s of startup to avoid event loop spam
+                if time.time() - _workspace_start_time < 3:
+                    return
+                # Debounce: only fire once per 1s window
+                with _completion_debounce_lock:
+                    if _completion_debounce_timer is not None:
+                        _completion_debounce_timer.cancel()
+                    def _fire():
+                        try:
+                            from prompt_toolkit.application import get_app
+                            app = get_app()
+                            def _do():
+                                buf = app.current_buffer
+                                if buf.text:
+                                    buf.cancel_completion()
+                                    buf.start_completion(select_first=False)
+                            app.loop.call_soon_threadsafe(_do)
+                        except Exception:
+                            pass
+                    _completion_debounce_timer = threading.Timer(1.0, _fire)
+                    _completion_debounce_timer.daemon = True
+                    _completion_debounce_timer.start()
 
             def check_devices(self):
                 return self.devices
@@ -278,9 +297,10 @@ def main_callback(
             def check_unset(self):
                 return self.unset
 
-            def flush(self):
+            def flush(self, include_packages=True):
                 self.trigger_update()
-                threading.Thread(target=fetch_packages_fn, daemon=True).start()
+                if include_packages:
+                    _schedule_packages_fetch()
                 
         # Check connected devices at startup
         from adbrv_module.devices import get_connected_devices
@@ -303,19 +323,30 @@ def main_callback(
             def __init__(self, cache_instance):
                 self.cache = cache_instance
                 self.process = None
+                self._debounce_timer = None
+                self._debounce_lock = threading.Lock()
                 self.thread = threading.Thread(target=self._run, daemon=True)
                 self.thread.start()
+
+            def _debounced_flush(self):
+                """Debounce: only flush once after track-devices settles for 1.5s"""
+                with self._debounce_lock:
+                    if self._debounce_timer is not None:
+                        self._debounce_timer.cancel()
+                    self._debounce_timer = threading.Timer(1.5, self.cache.flush)
+                    self._debounce_timer.daemon = True
+                    self._debounce_timer.start()
 
             def _run(self):
                 import subprocess
                 try:
-                    self.process = subprocess.Popen(["adb", "track-devices"], stdout=subprocess.PIPE, text=True)
+                    self.process = subprocess.Popen(["adb", "track-devices"], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
                     while True:
                         line = self.process.stdout.readline()
                         if not line and self.process.poll() is not None:
                             break
-                        # Track devices triggered: device joined/left
-                        self.cache.flush()
+                        # Debounce: wait for track-devices to settle before flushing
+                        self._debounced_flush()
                 except Exception:
                     pass
 
@@ -325,6 +356,9 @@ def main_callback(
                         self.process.kill()
                     except:
                         pass
+                with self._debounce_lock:
+                    if self._debounce_timer is not None:
+                        self._debounce_timer.cancel()
 
         realtime_monitor = RealtimeMonitor(status_cache)
 
@@ -411,61 +445,68 @@ def main_callback(
             return True
 
         def fetch_packages_fn():
-            # Wait for status fetching to complete so we don't cause contention
-            while status_cache.fetching:
-                time.sleep(0.1)
-                
-            devices = status_cache.check_devices()
-            if not devices or devices == ["Optimistic"]:
+            if not _packages_lock.acquire(blocking=False):
                 return
-            target_device = devices[0]
-            
-            # Stage 1: Get package list quickly
             try:
-                from adbrv_module.pullAPK import get_installed_packages_fast
-                fast_pkgs = get_installed_packages_fast(target_device)
-                if fast_pkgs:
-                    existing_names = {p["id"]: p.get("name", "") for p in packages_cache if p.get("name")}
-                    updated_pkgs = []
-                    for fp in fast_pkgs:
-                        pkg_id = fp["id"]
-                        friendly_name = existing_names.get(pkg_id, "")
-                        updated_pkgs.append({"id": pkg_id, "name": friendly_name})
+                # Wait for status fetching to complete (with timeout, no busy-wait)
+                _status_done_event.wait(timeout=10)
                     
-                    packages_cache.clear()
-                    packages_cache.extend(updated_pkgs)
-                    
-                    try:
-                        with open(cache_file_path, "w", encoding="utf-8") as f:
-                            json.dump(packages_cache, f, ensure_ascii=False, indent=2)
-                    except:
-                        pass
-                    status_cache.trigger_completion()
-            except Exception:
-                pass
+                devices = status_cache.check_devices()
+                if not devices or devices == ["Optimistic"]:
+                    return
+                target_device = devices[0]
+                
+                # Stage 1: Get package list quickly
+                try:
+                    from adbrv_module.pullAPK import get_installed_packages_fast
+                    fast_pkgs = get_installed_packages_fast(target_device)
+                    if fast_pkgs:
+                        existing_names = {p["id"]: p.get("name", "") for p in packages_cache if p.get("name")}
+                        updated_pkgs = []
+                        for fp in fast_pkgs:
+                            pkg_id = fp["id"]
+                            friendly_name = existing_names.get(pkg_id, "")
+                            updated_pkgs.append({"id": pkg_id, "name": friendly_name})
+                        
+                        packages_cache.clear()
+                        packages_cache.extend(updated_pkgs)
+                        
+                        try:
+                            with open(cache_file_path, "w", encoding="utf-8") as f:
+                                json.dump(packages_cache, f, ensure_ascii=False, indent=2)
+                        except:
+                            pass
+                        status_cache.trigger_completion()
+                except Exception:
+                    pass
 
-            # Stage 2: Load friendly names using frida-ps in the background
-            try:
-                from adbrv_module.pullAPK import get_packages_friendly_names
-                friendly_names = get_packages_friendly_names(target_device)
-                if friendly_names:
-                    for pkg_obj in packages_cache:
-                        pkg_id = pkg_obj["id"]
-                        if pkg_id in friendly_names:
-                            pkg_obj["name"] = friendly_names[pkg_id]
-                    
-                    packages_cache.sort(key=lambda x: not bool(x.get("name")))
-                    
-                    try:
-                        with open(cache_file_path, "w", encoding="utf-8") as f:
-                            json.dump(packages_cache, f, ensure_ascii=False, indent=2)
-                    except:
-                        pass
-                    status_cache.trigger_completion()
-            except Exception:
-                pass
+                # Stage 2: Load friendly names using frida-ps in the background
+                try:
+                    from adbrv_module.pullAPK import get_packages_friendly_names
+                    friendly_names = get_packages_friendly_names(target_device)
+                    if friendly_names:
+                        for pkg_obj in packages_cache:
+                            pkg_id = pkg_obj["id"]
+                            if pkg_id in friendly_names:
+                                pkg_obj["name"] = friendly_names[pkg_id]
+                        
+                        packages_cache.sort(key=lambda x: not bool(x.get("name")))
+                        
+                        try:
+                            with open(cache_file_path, "w", encoding="utf-8") as f:
+                                json.dump(packages_cache, f, ensure_ascii=False, indent=2)
+                        except:
+                            pass
+                        status_cache.trigger_completion()
+                except Exception:
+                    pass
+            finally:
+                _packages_lock.release()
+
+        def _schedule_packages_fetch():
+            threading.Thread(target=fetch_packages_fn, daemon=True).start()
         
-        threading.Thread(target=fetch_packages_fn, daemon=True).start()
+        _schedule_packages_fetch()
 
         def remove_accents(input_str):
             s1 = unicodedata.normalize('NFKD', input_str).encode('ASCII', 'ignore').decode('utf-8')
@@ -800,7 +841,7 @@ def main_callback(
                 while True:
                     try:
                         # eager=True in the KeyBinding bypasses the delay
-                        cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=True, key_bindings=kb)
+                        cmd = session.prompt("adbrv> ", completer=command_completer, complete_while_typing=False, key_bindings=kb)
                         if not cmd.strip():
                             continue
                         if cmd.strip().lower() in ["exit", "quit"]:
@@ -868,8 +909,9 @@ def main_callback(
                         except Exception as e:
                             console.print(f"[bold red]Command Error: {e}[/bold red]")
                         finally:
-                            # Flush caches sau khi chạy lệnh để refresh RealTime
-                            status_cache.flush()
+                            # Only flush after state-changing commands to avoid unnecessary lag
+                            if args and args[0] in {"set", "unset", "frida-start", "frida-kill"}:
+                                status_cache.flush(include_packages=False)
                             
                     except KeyboardInterrupt:
                         continue

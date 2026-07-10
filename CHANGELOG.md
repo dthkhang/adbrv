@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.8] - 2026-07-10
+
+### Fixed
+- **Workspace Startup Freeze (Critical)**: Fixed a ~10-30 second UI freeze after opening the workspace where keystrokes were completely unresponsive. Root cause: background subprocesses (`frida-ps`, `adb shell`, `adb track-devices`) inherited the terminal's stdin, stealing keyboard input from prompt_toolkit's event loop. Fixed by adding `stdin=subprocess.DEVNULL` to all background subprocess calls across `adbrv.py`, `pullAPK.py`, and `devices.py`.
+- **Completion System Storm**: Eliminated triple-fire completion triggers that overwhelmed prompt_toolkit's event loop. Disabled redundant `complete_while_typing=True` (manual `start_completion()` in key handlers already handles this), added 1-second debounce to `trigger_completion()`, and added a 3-second startup grace period to block background completion injections during initialization.
+- **Device Monitor Flush Storm**: Added 1.5-second debounce to `adb track-devices` output handler to prevent rapid-fire `flush()` calls when devices connect/disconnect.
+- **Thread Safety**: Added `threading.Lock` guards to `_fetch_status_worker` and `fetch_packages_fn` to prevent duplicate concurrent executions and race conditions.
+- **Busy-Wait CPU Burn**: Replaced `time.sleep()` polling loop in package fetching with `threading.Event.wait()` for zero-CPU blocking.
+
+### Removed
+- **Ghost Feature**: Fully removed the experimental auto-injection (`ghost`) feature and all associated modules due to persistent target app crashes.
+
 ## [2.4.7] - 2026-06-12
 
 ### Added
