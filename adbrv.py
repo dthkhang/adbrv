@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.4.9"
+__version__ = "2.5.0"
 import sys, subprocess
 import unicodedata
 import typer
@@ -136,7 +136,7 @@ def main_callback(
         
         allowed_commands_list = [
             "set", "unset", "status", "frida-start", "frida-kill", "pull",
-            "help", "exit", "quit", "ss", "--help", "-h"
+            "traceui", "help", "exit", "quit", "ss", "--help", "-h"
         ]
 
         import time
@@ -459,7 +459,7 @@ def main_callback(
             ends_with_space = text_lstrip.endswith(" ") or text_lstrip.endswith("\t")
             
             cmd = parts[0].lower()
-            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "pull", "ss", "help", "exit", "quit", "--help", "-h"]
+            valid_cmds = ["set", "unset", "status", "frida-start", "frida-kill", "pull", "traceui", "ss", "help", "exit", "quit", "--help", "-h"]
             matching_cmds = [c for c in valid_cmds if c.startswith(cmd)]
             
             if not matching_cmds:
@@ -470,7 +470,7 @@ def main_callback(
                     return False
                 return True
 
-            if cmd in ["pull", "set", "unset", "status", "frida-start", "frida-kill"]:
+            if cmd in ["pull", "traceui", "set", "unset", "status", "frida-start", "frida-kill"]:
                 if len(text_lstrip) > len(cmd):
                     if not status_cache.check_devices():
                         return False
@@ -485,7 +485,7 @@ def main_callback(
                     if not status_cache.check_unset():
                         return False
 
-            expected_pos = 2 if cmd in ["set", "pull"] else 0
+            expected_pos = 2 if cmd in ["set", "pull"] else (1 if cmd == "traceui" else 0)
             pos_count = 0
             has_flag = False
             flag_val_count = 0
@@ -528,6 +528,12 @@ def main_callback(
                     
             if cmd in ["help", "exit", "quit", "ss", "--help", "-h"]:
                 if ends_with_space or len(parts) > 1:
+                    return False
+                    
+            if cmd == "traceui":
+                if len(parts) > 2:
+                    return False
+                if len(parts) == 2 and ends_with_space:
                     return False
                     
             return True
@@ -761,6 +767,51 @@ def main_callback(
                         if "-d".startswith(word_before_cursor.lower()):
                             yield Completion("-d", start_position=-len(word_before_cursor))
 
+                elif cmd == "traceui":
+                    search_word = remove_accents(word_before_cursor.lower())
+                    if (len(parts) == 1) or (len(parts) == 2 and not ends_with_space):
+                        if parts[0].lower() == "traceui":
+                            devices = status_cache.check_devices()
+                            from prompt_toolkit.formatted_text import HTML
+                            if not devices:
+                                yield Completion(
+                                    text=" ",
+                                    start_position=0,
+                                    display=HTML('<ansired>[!] No devices connected</ansired>')
+                                )
+                                return
+
+                            if ends_with_space or len(parts) == 2:
+                                if not packages_cache:
+                                    import threading
+                                    threading.Thread(target=fetch_packages_fn, daemon=True).start()
+                                    yield Completion(
+                                        text=" ",
+                                        start_position=0,
+                                        display=HTML('<ansiyellow>[!] Loading packages. Please wait...</ansiyellow>')
+                                    )
+                                    return
+
+                                has_names = any(isinstance(p, dict) and p.get("name") for p in packages_cache)
+                                for pkg in packages_cache:
+                                    if isinstance(pkg, dict):
+                                        pkg_id = pkg.get("id", "").lower()
+                                        pkg_name = remove_accents(pkg.get("name", "").lower())
+                                        if search_word in pkg_id or search_word in pkg_name:
+                                            if has_names:
+                                                display_text = pkg.get("name") if pkg.get("name") else " "
+                                                yield Completion(
+                                                    text=pkg["id"],
+                                                    start_position=-len(word_before_cursor),
+                                                    display=display_text,
+                                                    display_meta=pkg["id"]
+                                                )
+                                            else:
+                                                yield Completion(
+                                                    text=pkg["id"],
+                                                    start_position=-len(word_before_cursor)
+                                                )
+
         command_completer = CommandCompleter()
 
         kb = KeyBindings()
@@ -943,6 +994,7 @@ def main_callback(
                             help_tbl.add_row("frida-kill", "Kill all running frida/florida-server processes on the device.")
                             help_tbl.add_row("pull", "Pull an installed APK from the device by its package name.")
                             help_tbl.add_row("ss", "Take a screenshot and copy to clipboard.")
+                            help_tbl.add_row("traceui", "Trace UI navigation & click handlers (Activity, Fragment, View clicks).")
                             help_tbl.add_row("exit / quit", "Exit the interactive workspace.")
                             
                             panel = Panel(
@@ -966,6 +1018,7 @@ def main_callback(
                             example_tbl.add_row("pull com.example /Downloads", "Extract single/split APKs to the destination.")
                             example_tbl.add_row("frida-kill -d 123", "Kill all running frida/florida-server processes on the specific device.")
                             example_tbl.add_row("ss", "Take a screenshot and copy to clipboard (Cmd+V to paste).")
+                            example_tbl.add_row("traceui com.example.app", "Trace UI: screens + clicks → find handlers in jadx.")
                             example_panel = Panel(
                                 example_tbl,
                                 title="Examples",
@@ -1002,6 +1055,143 @@ def main_callback(
                                 console.print("  [bold red]✖[/bold red] Screenshot timed out.")
                             except Exception as e:
                                 console.print(f"  [bold red]✖[/bold red] Screenshot error: {e}")
+                            continue
+                        if cmd.strip().lower().startswith("traceui"):
+                            try:
+                                parts = cmd.strip().split()
+                                if len(parts) < 2:
+                                    console.print("  [bold red]✖[/bold red] Usage: traceui <package_name>")
+                                    continue
+
+                                package_name = parts[1]
+
+                                # Get device serial from cache
+                                devs = status_cache.devices
+                                if not devs or devs == ["Optimistic"]:
+                                    console.print("  [bold red]✖[/bold red] No device connected.")
+                                    continue
+                                serial = devs[0]
+
+                                # Look up display name from packages_cache
+                                display_name = None
+                                for pkg in packages_cache:
+                                    if pkg["id"] == package_name:
+                                        display_name = pkg.get("name", "")
+                                        break
+
+                                if not display_name:
+                                    console.print(f"  [bold red]✖[/bold red] App '[bold]{package_name}[/bold]' not found. Make sure the app is installed and running.")
+                                    continue
+
+                                # JS template with 3-layer hooks + blacklist noise
+                                js_code = """Java.perform(function() {
+    var BLACKLIST = ["androidx.", "android.", "com.google.", "com.bumptech.", "com.facebook.", "com.crashlytics.", "com.squareup.", "io.reactivex.", "kotlin.", "kotlinx.", "okhttp3.", "retrofit2.", "dagger.", "javax.", "org."];
+    function isNoise(cn) {
+        for (var i = 0; i < BLACKLIST.length; i++) {
+            if (cn.indexOf(BLACKLIST[i]) === 0) return true;
+        }
+        return false;
+    }
+
+    // Layer 1: Activity tracking
+    var Activity = Java.use("android.app.Activity");
+    Activity.onResume.implementation = function() {
+        var cn = this.getClass().getName();
+        if (!isNoise(cn)) {
+            console.log("\\n[ACTIVITY] >>> " + cn);
+        }
+        this.onResume();
+    };
+
+    // Layer 2: Fragment tracking
+    try {
+        var Fragment = Java.use("androidx.fragment.app.Fragment");
+        Fragment.onResume.implementation = function() {
+            var cn = this.getClass().getName();
+            if (!isNoise(cn)) {
+                console.log("[FRAGMENT] >>> " + cn);
+            }
+            this.onResume();
+        };
+    } catch(e) {}
+
+    // Layer 3: Click tracking via View.performClick
+    var View = Java.use("android.view.View");
+    var viewClass = View.class;
+    var liField = viewClass.getDeclaredField("mListenerInfo");
+    liField.setAccessible(true);
+
+    View.performClick.implementation = function() {
+        try {
+            var li = liField.get(this);
+            if (li !== null) {
+                var onClickField = li.getClass().getDeclaredField("mOnClickListener");
+                onClickField.setAccessible(true);
+                var listener = onClickField.get(li);
+                if (listener !== null) {
+                    var listenerClass = listener.getClass().getName();
+                    if (!isNoise(listenerClass)) {
+                        var viewName = "";
+                        try {
+                            var id = this.getId();
+                            if (id > 0) viewName = this.getResources().getResourceEntryName(id);
+                        } catch(e) {}
+                        if (!viewName) viewName = this.getClass().getSimpleName();
+                        console.log("[CLICK]    " + viewName + " → " + listenerClass);
+                    }
+                }
+            }
+        } catch(e) {}
+        return this.performClick();
+    };
+
+    console.log("[*] UI Tracer loaded! Navigate and tap to trace...");
+});"""
+
+                                tmp_js = "/tmp/adbrv_traceui.js"
+                                with open(tmp_js, "w") as f:
+                                    f.write(js_code)
+
+                                console.print(f"  [bold cyan][*][/bold cyan] Tracing UI on [bold]{display_name}[/bold]... Press Ctrl+C to stop.")
+
+                                proc = subprocess.Popen(
+                                    ["frida", "-D", serial, "-n", display_name, "-l", tmp_js],
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                    stdin=subprocess.DEVNULL
+                                )
+                                try:
+                                    for line in proc.stdout:
+                                        line = line.rstrip()
+                                        if not line:
+                                            continue
+                                        # Skip Frida banner and noise
+                                        if '____' in line or '/ _  |' in line or '| (_| |' in line or '> _  |' in line or '/_/ |_|' in line or '. . . .' in line or 'Commands:' in line or 'More info at' in line or 'Connected to' in line or 'Attaching...' in line:
+                                            continue
+                                        # Strip REPL prompt prefix [device::app ]->
+                                        if ']->' in line:
+                                            line = line.split('->', 1)[1].strip()
+                                            if not line:
+                                                continue
+                                        # Color the output
+                                        if "[ACTIVITY]" in line:
+                                            console.print(f"  [bold magenta]{line}[/bold magenta]")
+                                        elif "[FRAGMENT]" in line:
+                                            console.print(f"  [bold cyan]{line}[/bold cyan]")
+                                        elif "[CLICK]" in line:
+                                            console.print()
+                                            console.print(f"  [bold green]{line}[/bold green]")
+                                        else:
+                                            console.print(f"  {line}")
+                                except KeyboardInterrupt:
+                                    print("\r  ", end="")  # Overwrite ^C
+                                    proc.terminate()
+                                    try:
+                                        proc.wait(timeout=3)
+                                    except:
+                                        proc.kill()
+                                console.print("  [bold yellow][*][/bold yellow] Tracing stopped.")
+                            except Exception as e:
+                                console.print(f"  [bold red]✖[/bold red] traceui error: {e}")
                             continue
                         args = shlex.split(cmd)
                         if not args:

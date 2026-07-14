@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.0] - 2026-07-14
+
+### Added
+- **UI Tracer (`traceui`)**: New workspace command to trace UI navigation and click handlers in real-time using Frida. Hooks Activity.onResume, Fragment.onResume, and View.performClick to show which screen is active and which class handles each click — perfect for mapping UI flows and finding code in jadx.
+  - Auto-suggests package names with Tab completion.
+  - Blacklist-based filtering removes noise from common libraries (androidx, Google, Glide, etc.).
+  - Color-coded output: Activity (magenta), Fragment (cyan), Click (green).
+  - Clean output with Frida banner stripped and grouped click events.
+- **Screenshot (`ss`)**: New workspace command to capture device screenshot and copy directly to clipboard. Uses `adb exec-out screencap -p` for fast PNG streaming. Fire-and-forget clipboard copy for minimal latency.
+
 ## [2.4.9] - 2026-07-10
 
 ### Added

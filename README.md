@@ -38,6 +38,17 @@
   - Automatically handles Split APKs and packages them neatly.
   - Intelligent fallback to `su` mode if standard `adb pull` encounters permission restrictions!
 
+- 🔎 **UI Tracer (`traceui`)**
+  - `traceui <package_name>` traces UI navigation and click handlers in real-time using Frida.
+  - 3-layer hooks: Activity.onResume, Fragment.onResume, View.performClick.
+  - Shows which screen is active and which class handles each button click — find handler code in jadx instantly.
+  - Blacklist-based filtering removes noise from common libraries (androidx, Google, Glide, etc.).
+  - Color-coded output and grouped click events for clean readability.
+
+- 📸 **Screenshot (`ss`)**
+  - Captures device screenshot and copies directly to clipboard (Cmd+V to paste).
+  - Uses `adb exec-out screencap -p` for fast PNG streaming with fire-and-forget clipboard copy.
+
 - 🗝️ **APK resigning (uber-apk-signer integration)**
   - `--resign` flag allows you to resign APK files directly from adbrv using the integrated [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer).
   - Supports all original uber-apk-signer options and flags.
