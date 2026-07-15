@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1] - 2026-07-15
+
+### Added
+- **Auto-Cleanup Watchdog**: The `set` command now deploys an intelligent, zero-CPU background watchdog on the device. When the USB cable is physically unplugged (ADB connection lost) or the workspace is exited, the device automatically resets its global HTTP proxy and kills `frida-server`/`florida-server`, ensuring the device's internet connectivity is immediately restored without requiring manual `unset` via PC.
+
 ## [2.5.0] - 2026-07-14
 
 ### Added

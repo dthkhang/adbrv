@@ -3,7 +3,10 @@ import subprocess, sys
 class ProxyError(Exception):
     pass
 
+_watchdogs = {}
+
 def set_proxy(local_port, device_port, serial=None):
+    global _watchdogs
     from rich.console import Console
     console = Console()
     adb_base = ["adb"]
@@ -21,16 +24,53 @@ def set_proxy(local_port, device_port, serial=None):
                 subprocess.run(adb_base + ["shell", "settings", "put", "global", "http_proxy", f"localhost:{local_port}"], check=True)
         console.print(f"  [bold green]✔[/bold green] Proxy      [cyan]localhost:{local_port}[/cyan]")
 
+        # Start watchdog on device
+        watchdog_cmd = (
+            "nohup sh -c 'read line; "
+            "if [ \"$line\" != \"CANCEL\" ]; then "
+            "settings put global http_proxy :0; "
+            "killall -9 frida-server 2>/dev/null; "
+            "killall -9 florida-server 2>/dev/null; "
+            "fi' >/dev/null 2>&1"
+        )
+        wd = subprocess.Popen(
+            adb_base + ["shell", watchdog_cmd],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        key = serial or "default"
+        # Cancel previous watchdog if it exists
+        if key in _watchdogs:
+            try:
+                _watchdogs[key].stdin.write(b"CANCEL\n")
+                _watchdogs[key].stdin.flush()
+                _watchdogs[key].stdin.close()
+            except:
+                pass
+        _watchdogs[key] = wd
+
     except subprocess.CalledProcessError as e:
         raise ProxyError(f"Error setting proxy or reverse: {e}")
 
 
+
 def unset_proxy_and_reverse(serial=None):
+    global _watchdogs
     from rich.console import Console
     console = Console()
     adb_base = ["adb"]
     if serial:
         adb_base += ["-s", serial]
+        
+    key = serial or "default"
+    if key in _watchdogs:
+        try:
+            _watchdogs[key].stdin.write(b"CANCEL\n")
+            _watchdogs[key].stdin.flush()
+            _watchdogs[key].stdin.close()
+            del _watchdogs[key]
+        except:
+            pass
+
     try:
         with console.status("  [dim]Removing proxy...[/dim]", spinner="dots"):
             cmd = "settings put global http_proxy :0"

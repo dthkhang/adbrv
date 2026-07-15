@@ -148,6 +148,7 @@ adbrv -h | --help
 ```bash
 adbrv set <local_port> <device_port> [--device <serial>]
   # Set up ADB reverse and HTTP proxy on the Android device
+  # Includes a zero-CPU watchdog that auto-clears proxy & frida when the USB is unplugged
 adbrv unset [--device <serial>]
   # Remove proxy and all reverse ports on the selected (or all) devices
 adbrv status [--device <serial>]
