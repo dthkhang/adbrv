@@ -26,7 +26,7 @@ def set_proxy(local_port, device_port, serial=None):
 
         # Start watchdog on device
         watchdog_cmd = (
-            "nohup sh -c 'read line; "
+            "sh -c 'trap \"\" HUP; read line; "
             "if [ \"$line\" != \"CANCEL\" ]; then "
             "settings put global http_proxy :0; "
             "killall -9 frida-server 2>/dev/null; "
@@ -43,6 +43,9 @@ def set_proxy(local_port, device_port, serial=None):
             try:
                 _watchdogs[key].stdin.write(b"CANCEL\n")
                 _watchdogs[key].stdin.flush()
+            except:
+                pass
+            try:
                 _watchdogs[key].stdin.close()
             except:
                 pass
@@ -66,7 +69,13 @@ def unset_proxy_and_reverse(serial=None):
         try:
             _watchdogs[key].stdin.write(b"CANCEL\n")
             _watchdogs[key].stdin.flush()
+        except:
+            pass
+        try:
             _watchdogs[key].stdin.close()
+        except:
+            pass
+        try:
             del _watchdogs[key]
         except:
             pass

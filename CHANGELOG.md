@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.2] - 2026-07-17
+
+### Fixed
+- **Watchdog `BrokenPipeError`**: Fixed an issue where the zero-CPU watchdog exited immediately on Android 14 devices (due to `nohup` cutting stdin), leading to proxy resets and Garbage Collector warnings. Replaced `nohup` with native shell `trap "" HUP` for rock-solid stability.
+- **Startup Status Table Logic**: Fixed a regression where the initial device status table stopped printing automatically at workspace startup.
+
 ## [2.5.1] - 2026-07-15
 
 ### Added

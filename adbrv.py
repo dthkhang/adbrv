@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-__version__ = "2.5.1"
+__version__ = "2.5.2"
 import sys, subprocess
 import unicodedata
 import typer
@@ -161,8 +161,6 @@ def main_callback(
         _completion_debounce_lock = threading.Lock()
         _workspace_start_time = time.time()
 
-        _initial_status_printed = False
-
         class StatusCache:
             def __init__(self, initial_devices=None):
                 self.devices = initial_devices if initial_devices is not None else ["Optimistic"]
@@ -174,6 +172,7 @@ def main_callback(
                 self.device_reverses = {}
                 self.frida = True
                 self.unset = True
+                self._startup_printed = False
                 
                 # Eagerly pre-fetch statuses in background
                 self.trigger_update()
@@ -253,6 +252,12 @@ def main_callback(
                         except:
                             new_reverses[d] = "null"
                     
+                    should_print_table = False
+                    if not self._startup_printed:
+                        if devs:
+                            should_print_table = True
+                        self._startup_printed = True
+
                     if self.devices != ["Optimistic"]:
                         old_devs = set(self.devices)
                         new_devs = set(devs)
@@ -268,6 +273,9 @@ def main_callback(
                             self.device_models.pop(d, None)
                             
                         added = new_devs - old_devs
+                        if added:
+                            should_print_table = True
+                            
                         for d in added:
                             model = new_models.get(d, "")
                             if not model:
@@ -280,6 +288,9 @@ def main_callback(
                             display_name = model if model else d
                             print_formatted_text(HTML(f"<ansigreen>[+] Device connected: {display_name}</ansigreen>"))
                             _schedule_packages_fetch()
+                    else:
+                        if devs:
+                            should_print_table = True
                             
                     self.devices = devs
                     self.device_models.update(new_models)
@@ -297,8 +308,9 @@ def main_callback(
                     self.unset = is_any_set
                     self.frida = is_any_frida
                     
-                    # Auto-print status table on first fetch
-                    self._print_initial_status()
+                    # Auto-print status table on new device connect
+                    if should_print_table:
+                        self._print_status_table()
                 except Exception:
                     pass
                 finally:
@@ -306,11 +318,9 @@ def main_callback(
                     _status_lock.release()
                     self.trigger_completion()
 
-            def _print_initial_status(self):
-                nonlocal _initial_status_printed
-                if _initial_status_printed or not self.devices:
+            def _print_status_table(self):
+                if not self.devices:
                     return
-                _initial_status_printed = True
                 try:
                     from rich.console import Console
                     from rich.table import Table
